@@ -40,7 +40,7 @@ MOD=$(grep -o 'moderation.php?id=[0-9]*&t=[0-9a-f]*' "$WORK/data/mail.log" | hea
 MID=$(echo "$MOD" | sed 's/.*id=\([0-9]*\).*/\1/'); MT=$(echo "$MOD" | sed 's/.*t=//')
 curl -s "$U/$MOD" | grep -q '<dd>Lovelace</dd>' && ok "lien de modération : récapitulatif" || ko "page de modération"
 [ "$(curl -s -o /dev/null -w '%{http_code}' "$U/moderation.php?id=$MID&t=$(printf '0%.0s' $(seq 64))")" = 400 ] && ok "lien de modération falsifié refusé" || ko "jeton de modération"
-curl -s -o /dev/null -H 'Sec-Fetch-Site: cross-site' -d "id=$MID&t=$MT&a=valider" "$U/moderation.php"
+curl -s -H 'Sec-Fetch-Site: cross-site' -d "id=$MID&t=$MT&a=valider" "$U/moderation.php" | grep -q 'Action refusée' && ok "modération intersite : refus affiché" || ko "refus non affiché"
 curl -s "$U/signataires.php" | grep -q Lovelace && ko "modération depuis un autre site" || ok "modération depuis un autre site refusée"
 curl -s -H 'Sec-Fetch-Site: same-origin' -d "id=$MID&t=$MT&a=valider" "$U/moderation.php" | grep -q 'Signature validée' && ok "validation par le lien de modération" || ko "validation"
 curl -s "$U/signataires.php" | grep -q Lovelace && ok "publiée après validation" || ko "absente de la liste"
