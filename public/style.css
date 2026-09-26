@@ -130,3 +130,6 @@ button:hover { background: #ffd83d; }
 
 .site-footer { border-top: 1px solid var(--border); font-size: .9rem; }
 .site-footer .inner { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; padding-top: 1.25rem; padding-bottom: 1.5rem; }
+
+.moderation-actions { display: flex; flex-wrap: wrap; gap: .75rem; }
+.moderation-actions form { margin: 0; }
