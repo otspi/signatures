@@ -204,5 +204,15 @@ function page(string $title, string $body, string $lang): void
     echo '<!doctype html><html lang="' . h($lang) . '"><head><meta charset="utf-8">'
         . '<meta name="viewport" content="width=device-width, initial-scale=1">'
         . '<meta name="robots" content="noindex"><title>' . h($title) . '</title>'
-        . '<link rel="stylesheet" href="style.css"></head><body><main>' . $body . '</main></body></html>';
+        . '<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">'
+        . '<link rel="stylesheet" href="style.css"></head><body>'
+        . '<header class="site-header"><div class="inner"><a class="brand" href="' . h(t('site_url', $lang)) . '">'
+        . '<img class="logo-light" src="assets/logo-horizontal.svg" alt="' . h(t('home_alt', $lang)) . '" width="216" height="48">'
+        . '<img class="logo-dark" src="assets/logo-horizontal-dark.svg" alt="" width="216" height="48"></a></div></header>'
+        . '<main><div class="card">' . $body . '</div></main>'
+        . '<footer class="site-footer"><div class="inner">'
+        . '<a href="' . h(t('manifesto_url', $lang)) . '">' . h(t('manifesto_link', $lang)) . '</a>'
+        . '<a href="' . h(t('legal_url', $lang)) . '">' . h(t('legal_link', $lang)) . '</a>'
+        . '<a href="mailto:contact@otspi.org">contact@otspi.org</a>'
+        . '</div></footer></body></html>';
 }

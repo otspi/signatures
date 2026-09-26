@@ -3,6 +3,12 @@
 // Textes bilingues (le français fait foi).
 
 return [
+    'site_url' => ['fr' => 'https://www.otspi.org/', 'en' => 'https://www.otspi.org/en/'],
+    'home_alt' => ['fr' => 'OTSPI — retour au site', 'en' => 'OTSPI — back to the website'],
+    'manifesto_url' => ['fr' => 'https://www.otspi.org/manifeste.html', 'en' => 'https://www.otspi.org/en/manifesto.html'],
+    'manifesto_link' => ['fr' => 'Lire le manifeste', 'en' => 'Read the manifesto'],
+    'legal_url' => ['fr' => 'https://www.otspi.org/mentions-legales.html', 'en' => 'https://www.otspi.org/en/legal-notice.html'],
+    'legal_link' => ['fr' => 'Mentions légales', 'en' => 'Legal notice'],
     'title' => ['fr' => 'Signer le manifeste', 'en' => 'Sign the manifesto'],
     'heading' => ['fr' => 'Signer le manifeste pour une identité numérique libre et ouverte', 'en' => 'Sign the manifesto for a free and open digital identity'],
     'firstname' => ['fr' => 'Prénom', 'en' => 'First name'],
