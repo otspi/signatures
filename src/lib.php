@@ -249,6 +249,22 @@ function moderate(int $id, string $action): bool
     return $statement->rowCount() === 1;
 }
 
+// ---- Administration ----------------------------------------------------------------------------
+
+const ADMIN_TTL = 1800;          // 30 min : validité d'un lien d'accès à l'administration
+
+/** Jeton du lien d'accès à l'administration, envoyé à la seule adresse de contact : HMAC de l'échéance. */
+function admin_token(int $expires): string
+{
+    return hash_hmac('sha256', 'admin|' . $expires, config()['secret']);
+}
+
+function admin_access_ok(string $expires, string $token): bool
+{
+    return ctype_digit($expires) && (int) $expires >= time() && (int) $expires <= time() + ADMIN_TTL
+        && preg_match('/^[0-9a-f]{64}$/', $token) === 1 && hash_equals(admin_token((int) $expires), $token);
+}
+
 // ---- Validation ---------------------------------------------------------------------------------
 
 function clean(string $value, int $max): ?string
@@ -368,7 +384,7 @@ function back_to_form(string $lang): string
     return '<p><a class="button" href="index.php?lang=' . $lang . '">' . h(t('back_to_form', $lang)) . '</a></p>';
 }
 
-function page(string $title, string $body, string $lang): void
+function page(string $title, string $body, string $lang, bool $wide = false): void
 {
     header('Content-Type: text/html; charset=UTF-8');
     header("Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
@@ -383,7 +399,7 @@ function page(string $title, string $body, string $lang): void
         . '<header class="site-header"><div class="inner"><a class="brand" href="' . h(t('site_url', $lang)) . '">'
         . '<img class="logo-light" src="assets/logo-horizontal.svg" alt="' . h(t('home_alt', $lang)) . '" width="216" height="48">'
         . '<img class="logo-dark" src="assets/logo-horizontal-dark.svg" alt="" width="216" height="48"></a></div></header>'
-        . '<main><div class="card">' . $body . '</div></main>'
+        . '<main' . ($wide ? ' class="wide"' : '') . '><div class="card">' . $body . '</div></main>'
         . '<footer class="site-footer"><div class="inner">'
         . '<a href="' . h(t('manifesto_url', $lang)) . '">' . h(t('manifesto_link', $lang)) . '</a>'
         . '<a href="' . h(t('legal_url', $lang)) . '">' . h(t('legal_link', $lang)) . '</a>'
