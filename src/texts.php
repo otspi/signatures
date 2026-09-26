@@ -3,6 +3,9 @@
 // Textes bilingues (le français fait foi).
 
 return [
+    'back_to_form' => ['fr' => 'Revenir au formulaire', 'en' => 'Back to the form'],
+    'notfound_title' => ['fr' => 'Page introuvable', 'en' => 'Page not found'],
+    'notfound' => ['fr' => 'Cette adresse n’existe pas. Le formulaire de signature se trouve sur la page d’accueil de ce site.', 'en' => 'This address does not exist. The signature form is on the home page of this site.'],
     'site_url' => ['fr' => 'https://www.otspi.org/', 'en' => 'https://www.otspi.org/en/'],
     'home_alt' => ['fr' => 'OTSPI — retour au site', 'en' => 'OTSPI — back to the website'],
     'manifesto_url' => ['fr' => 'https://www.otspi.org/manifeste.html', 'en' => 'https://www.otspi.org/en/manifesto.html'],
