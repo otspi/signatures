@@ -109,6 +109,22 @@ button:hover { background: #ffd83d; }
   background: color-mix(in srgb, var(--error) 12%, transparent);
 }
 .privacy { font-size: .9rem; color: var(--text-muted); }
+
+.recap {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: .35rem 1rem;
+  margin: 0 0 1.5rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.recap dt { font-weight: 600; color: var(--text-muted); }
+.recap dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 480px) {
+  .recap { grid-template-columns: 1fr; gap: 0; }
+  .recap dd { margin-bottom: .5rem; }
+}
 .hp { position: absolute; left: -9999px; }
 .lang { text-align: right; margin: 0; font-weight: 600; }
 

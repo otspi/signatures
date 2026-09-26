@@ -9,6 +9,7 @@ const CONFIRM_TTL = 172800;      // 48 h : validité du lien de confirmation
 const UNCONFIRMED_TTL = 604800;  // 7 jours : durée de conservation d'une demande non confirmée
 const MIN_FILL_SECONDS = 4;      // un humain met plus de 4 s à remplir le formulaire
 const MAX_FILL_SECONDS = 7200;   // formulaire périmé au-delà de 2 h
+const MAIL_HOURLY_CAP = 200;     // plafond global d'e-mails de confirmation par heure (surcharge : mail_hourly_cap)
 
 // Erreur inattendue (base verrouillée, disque plein…) : journalisée, jamais affichée.
 set_exception_handler(static function (Throwable $e): void {
@@ -160,6 +161,12 @@ function form_token_state(string $token): string
 function ip_hash(): string
 {
     $ip = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    $packed = @inet_pton($ip);
+    // IPv6 : un abonné dispose en général d'un /64 entier ; la limite porte donc sur le préfixe.
+    // Les adresses IPv4 représentées en IPv6 (::ffff:a.b.c.d) restent entières.
+    if ($packed !== false && strlen($packed) === 16 && substr($packed, 0, 12) !== str_repeat("\0", 10) . "\xff\xff") {
+        $ip = bin2hex(substr($packed, 0, 8)) . '/64';
+    }
     return hash_hmac('sha256', 'ip|' . $ip, config()['secret']);
 }
 
@@ -170,6 +177,38 @@ function rate_limited(int $max, int $window): bool
     $count = $pdo->prepare('SELECT COUNT(*) FROM hits WHERE ip_hash = ? AND at > ?');
     $count->execute([ip_hash(), time() - $window]);
     return (int) $count->fetchColumn() >= $max;
+}
+
+/**
+ * Plafond global d'e-mails de confirmation sur une heure : borne l'usage du site comme relais d'envoi,
+ * même depuis de nombreuses adresses IP.
+ */
+function mail_cap_reached(): bool
+{
+    $count = db()->prepare('SELECT COUNT(*) FROM signatures WHERE last_mail_at > ?');
+    $count->execute([time() - 3600]);
+    return (int) $count->fetchColumn() >= (int) (config()['mail_hourly_cap'] ?? MAIL_HOURLY_CAP);
+}
+
+/**
+ * POST envoyé depuis un autre site (formulaire caché qui ferait soumettre les visiteurs à leur insu).
+ * Sec-Fetch-Site fait foi quand le navigateur l'envoie ; sinon, un en-tête Origin étranger suffit à
+ * refuser. Origin « null » est ignoré : avec Referrer-Policy no-referrer, certains navigateurs
+ * l'envoient pour nos propres formulaires.
+ */
+function cross_site_post(): bool
+{
+    $site = $_SERVER['HTTP_SEC_FETCH_SITE'] ?? null;
+    if ($site !== null) {
+        return !in_array($site, ['same-origin', 'none'], true);
+    }
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? 'null';
+    if ($origin === 'null') {
+        return false;
+    }
+    $base = parse_url(config()['base_url']);
+    $own = $base['scheme'] . '://' . $base['host'] . (isset($base['port']) ? ':' . $base['port'] : '');
+    return strcasecmp($origin, $own) !== 0;
 }
 
 function record_hit(): void
@@ -184,9 +223,11 @@ function clean(string $value, int $max): ?string
     $value = trim(preg_replace('/\s+/u', ' ', $value) ?? '');
     // Refuse les caractères de contrôle (C0, C1), privés, les contrôles bidirectionnels et les espaces
     // de largeur nulle, qui permettraient de maquiller un nom dans la liste publique. ZWJ et ZWNJ restent
-    // permis : certaines écritures en ont besoin.
+    // permis : certaines écritures en ont besoin. Refuse aussi les liens, ces champs étant recopiés dans
+    // l'e-mail de confirmation envoyé à une adresse que l'on ne contrôle pas encore.
     if ($value === '' || mb_strlen($value) > $max
-        || preg_match('/[\p{Cc}\p{Co}\p{Cs}\x{061C}\x{200B}\x{200E}\x{200F}\x{202A}-\x{202E}\x{2060}-\x{2069}\x{FEFF}<>]/u', $value)) {
+        || preg_match('/[\p{Cc}\p{Co}\p{Cs}\x{061C}\x{200B}\x{200E}\x{200F}\x{202A}-\x{202E}\x{2060}-\x{2069}\x{FEFF}<>]/u', $value)
+        || preg_match('#://|www\.#i', $value)) {
         return null;
     }
     return $value;
@@ -239,6 +280,39 @@ function send_mail(string $to, string $subject, string $body): bool
         return true;
     }
     return mail($to, $encodedSubject, $body, implode("\r\n", $headers), '-f' . $from);
+}
+
+/**
+ * Données qui seront enregistrées (et publiées si la personne l'a accepté), à relire avant de confirmer :
+ * paires libellé / valeur, rendues en texte dans l'e-mail et en HTML sur la page de confirmation.
+ */
+function recap(array $signature, string $lang): array
+{
+    return [
+        t('recap_firstname', $lang) => $signature['prenom'],
+        t('recap_lastname', $lang) => $signature['nom'],
+        t('recap_position', $lang) => $signature['fonction'] !== '' ? $signature['fonction'] : '—',
+        t('recap_organisation', $lang) => $signature['organisation'] !== '' ? $signature['organisation'] : '—',
+        t('recap_publish', $lang) => t($signature['publier'] ? 'yes' : 'no', $lang),
+    ];
+}
+
+function recap_text(array $signature, string $lang): string
+{
+    $lines = [];
+    foreach (recap($signature, $lang) as $label => $value) {
+        $lines[] = '  ' . $label . ($lang === 'fr' ? ' : ' : ': ') . $value;
+    }
+    return implode("\n", $lines);
+}
+
+function recap_html(array $signature, string $lang): string
+{
+    $html = '<dl class="recap">';
+    foreach (recap($signature, $lang) as $label => $value) {
+        $html .= '<dt>' . h($label) . '</dt><dd>' . h($value) . '</dd>';
+    }
+    return $html . '</dl>';
 }
 
 function url(string $path, array $query = []): string
