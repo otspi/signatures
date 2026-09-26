@@ -384,10 +384,17 @@ function back_to_form(string $lang): string
     return '<p><a class="button" href="index.php?lang=' . $lang . '">' . h(t('back_to_form', $lang)) . '</a></p>';
 }
 
-function page(string $title, string $body, string $lang, bool $wide = false): void
+/**
+ * $audience charge la mesure d'audience Matomo (sans cookie) : à réserver aux pages dont l'adresse ne porte
+ * aucune donnée personnelle, donc jamais aux liens de confirmation, de retrait, de modération ou d'administration.
+ */
+function page(string $title, string $body, string $lang, bool $wide = false, bool $audience = false): void
 {
+    $stats = $audience ? ' https://stats.otspi.org' : '';
     header('Content-Type: text/html; charset=UTF-8');
-    header("Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+    header("Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self'$stats; "
+        . ($audience ? "script-src 'self'$stats; connect-src$stats; " : '')
+        . "form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
     header('X-Content-Type-Options: nosniff');
     header('Referrer-Policy: no-referrer');
     header('Cache-Control: no-store');
@@ -395,7 +402,9 @@ function page(string $title, string $body, string $lang, bool $wide = false): vo
         . '<meta name="viewport" content="width=device-width, initial-scale=1">'
         . '<meta name="robots" content="noindex"><title>' . h($title) . '</title>'
         . '<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">'
-        . '<link rel="stylesheet" href="style.css"></head><body>'
+        . '<link rel="stylesheet" href="style.css">'
+        . ($audience ? '<script src="assets/analytics.js" defer></script>' : '')
+        . '</head><body>'
         . '<header class="site-header"><div class="inner"><a class="brand" href="' . h(t('site_url', $lang)) . '">'
         . '<img class="logo-light" src="assets/logo-horizontal.svg" alt="' . h(t('home_alt', $lang)) . '" width="216" height="48">'
         . '<img class="logo-dark" src="assets/logo-horizontal-dark.svg" alt="" width="216" height="48"></a></div></header>'
