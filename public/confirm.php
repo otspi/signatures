@@ -32,14 +32,17 @@ if (preg_match('/^[0-9a-f]{64}$/', $token) === 1) {
             $l = $signature['lang'] === 'en' ? 'en' : 'fr';
             send_mail($signature['email'], t('mail_done_subject', $l), sprintf(t('mail_done_body', $l), url('withdraw.php', ['t' => $withdraw, 'lang' => $l])));
             if ((int) $signature['publier'] === 1) {
-                // Rien n'est publié avant validation (bin/moderation.php) : on prévient la personne qui modère.
+                // Rien n'est publié avant validation : on envoie à la personne qui modère un lien signé vers
+                // public/moderation.php (la ligne de commande bin/moderation.php reste possible).
                 $who = trim($signature['prenom'] . ' ' . $signature['nom']);
                 $quality = implode(', ', array_filter([$signature['fonction'], $signature['organisation']], 'strlen'));
                 send_mail(config()['contact'], 'Signature à modérer : ' . $who,
                     "Nouvelle signature confirmée, en attente de validation avant publication.\n\n"
                     . "#{$signature['id']} {$who}" . ($quality !== '' ? " — {$quality}" : '') . "\n"
                     . "E-mail : {$signature['email']}\n\n"
-                    . "php bin/moderation.php lister | valider {$signature['id']} | masquer {$signature['id']} | supprimer {$signature['id']}\n");
+                    . "Valider, masquer ou supprimer :\n"
+                    . url('moderation.php', ['id' => $signature['id'], 't' => moderation_token((int) $signature['id'], (int) $signature['created_at'])]) . "\n\n"
+                    . "En ligne de commande : php bin/moderation.php valider {$signature['id']}\n");
             }
             page(t('confirmed_title', $lang), '<h1>' . h(t('confirmed_title', $lang)) . '</h1><p>' . h(t('confirmed', $lang)) . '</p>', $lang);
             exit;

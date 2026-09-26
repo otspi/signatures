@@ -5,6 +5,7 @@
 //   php bin/moderation.php valider ID...    publie les signatures dans la liste publique
 //   php bin/moderation.php masquer ID...    garde la signature (comptée) sans jamais publier le nom
 //   php bin/moderation.php supprimer ID...  supprime la signature et ses données (usurpation, abus)
+// Les mêmes actions sont accessibles depuis le lien de l'e-mail « Signature à modérer » (public/moderation.php).
 
 declare(strict_types=1);
 if (PHP_SAPI !== 'cli') {
@@ -27,17 +28,10 @@ if ($command === 'lister') {
     exit;
 }
 
-$statements = [
-    'valider' => 'UPDATE signatures SET approved_at = ? WHERE id = ? AND confirmed_at IS NOT NULL',
-    'masquer' => 'UPDATE signatures SET publier = 0, approved_at = ? WHERE id = ? AND confirmed_at IS NOT NULL',
-    'supprimer' => 'DELETE FROM signatures WHERE id = ?',
-];
-if (!isset($statements[$command]) || $ids === [] || in_array(0, $ids, true)) {
+if (!in_array($command, MODERATION_ACTIONS, true) || $ids === [] || in_array(0, $ids, true)) {
     fwrite(STDERR, "Usage : php bin/moderation.php lister | valider ID... | masquer ID... | supprimer ID...\n");
     exit(2);
 }
-$statement = $pdo->prepare($statements[$command]);
 foreach ($ids as $id) {
-    $statement->execute($command === 'supprimer' ? [$id] : [time(), $id]);
-    echo "#{$id} : " . ($statement->rowCount() === 1 ? $command . ' — fait' : 'introuvable ou non confirmée') . "\n";
+    echo "#{$id} : " . (moderate($id, $command) ? $command . ' — fait' : 'introuvable ou non confirmée') . "\n";
 }

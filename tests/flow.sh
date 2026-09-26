@@ -35,8 +35,14 @@ curl -s "$U/confirm.php?t=$TOKEN" | grep -q '<dd>Lovelace</dd>' && ok "récapitu
 grep -q 'SUBJECT: Signature à modérer : Ada Lovelace' "$WORK/data/mail.log" && ok "notification de modération" || ko "notification de modération"
 curl -s "$U/signataires.php" | grep -q Lovelace && ko "publiée avant modération" || ok "non publiée avant modération"
 curl -s "$U/signataires.php" | grep -q '"total": 3' && ko "comptée avant modération" || ok "non comptée avant modération"
-ID=$(docker exec "$CID" php /app/bin/moderation.php lister | grep -o '^#[0-9]*' | tr -d '#')
-docker exec "$CID" php /app/bin/moderation.php valider "$ID" | grep -q fait && ok "validation par la modération" || ko "validation"
+docker exec "$CID" php /app/bin/moderation.php lister | grep -q 'Ada Lovelace' && ok "modération en ligne de commande : liste" || ko "liste de modération"
+MOD=$(grep -o 'moderation.php?id=[0-9]*&t=[0-9a-f]*' "$WORK/data/mail.log" | head -1)
+MID=$(echo "$MOD" | sed 's/.*id=\([0-9]*\).*/\1/'); MT=$(echo "$MOD" | sed 's/.*t=//')
+curl -s "$U/$MOD" | grep -q '<dd>Lovelace</dd>' && ok "lien de modération : récapitulatif" || ko "page de modération"
+[ "$(curl -s -o /dev/null -w '%{http_code}' "$U/moderation.php?id=$MID&t=$(printf '0%.0s' $(seq 64))")" = 400 ] && ok "lien de modération falsifié refusé" || ko "jeton de modération"
+curl -s -o /dev/null -H 'Sec-Fetch-Site: cross-site' -d "id=$MID&t=$MT&a=valider" "$U/moderation.php"
+curl -s "$U/signataires.php" | grep -q Lovelace && ko "modération depuis un autre site" || ok "modération depuis un autre site refusée"
+curl -s -H 'Sec-Fetch-Site: same-origin' -d "id=$MID&t=$MT&a=valider" "$U/moderation.php" | grep -q 'Signature validée' && ok "validation par le lien de modération" || ko "validation"
 curl -s "$U/signataires.php" | grep -q Lovelace && ok "publiée après validation" || ko "absente de la liste"
 curl -s "$U/signataires.php" | grep -q 'ada@example.org' && ko "e-mail publié !" || ok "adresse e-mail jamais publiée"
 FT=$(ft); sleep 5

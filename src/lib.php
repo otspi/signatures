@@ -216,6 +216,39 @@ function record_hit(): void
     db()->prepare('INSERT INTO hits (ip_hash, at) VALUES (?, ?)')->execute([ip_hash(), time()]);
 }
 
+// ---- Modération -------------------------------------------------------------------------------
+
+const MODERATION_ACTIONS = ['valider', 'masquer', 'supprimer'];
+
+/**
+ * Jeton du lien de modération envoyé à l'adresse de contact : HMAC lié à la signature (identifiant et
+ * date de la demande), sans stockage ; il cesse de fonctionner quand la signature est supprimée.
+ */
+function moderation_token(int $id, int $createdAt): string
+{
+    return hash_hmac('sha256', 'moderation|' . $id . '|' . $createdAt, config()['secret']);
+}
+
+/**
+ * valider : publie la signature ; masquer : la garde (comptée) sans jamais publier le nom ;
+ * supprimer : efface la signature et ses données (usurpation, abus). Vrai si une signature confirmée
+ * a été modifiée.
+ */
+function moderate(int $id, string $action): bool
+{
+    $sql = [
+        'valider' => 'UPDATE signatures SET approved_at = :now WHERE id = :id AND confirmed_at IS NOT NULL',
+        'masquer' => 'UPDATE signatures SET publier = 0, approved_at = :now WHERE id = :id AND confirmed_at IS NOT NULL',
+        'supprimer' => 'DELETE FROM signatures WHERE id = :id AND confirmed_at IS NOT NULL',
+    ][$action] ?? null;
+    if ($sql === null) {
+        return false;
+    }
+    $statement = db()->prepare($sql);
+    $statement->execute($action === 'supprimer' ? ['id' => $id] : ['id' => $id, 'now' => time()]);
+    return $statement->rowCount() === 1;
+}
+
 // ---- Validation ---------------------------------------------------------------------------------
 
 function clean(string $value, int $max): ?string
