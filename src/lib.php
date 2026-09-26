@@ -363,6 +363,11 @@ function t(string $key, string $lang): string
     return $texts[$key][$lang] ?? $texts[$key]['fr'] ?? $key;
 }
 
+function back_to_form(string $lang): string
+{
+    return '<p><a class="button" href="index.php?lang=' . $lang . '">' . h(t('back_to_form', $lang)) . '</a></p>';
+}
+
 function page(string $title, string $body, string $lang): void
 {
     header('Content-Type: text/html; charset=UTF-8');

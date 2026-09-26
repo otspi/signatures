@@ -30,4 +30,4 @@ if ($valid && $_SERVER['REQUEST_METHOD'] === 'POST' && !cross_site_post()) {
     }
 }
 http_response_code(400);
-page(t('confirm_invalid_title', $lang), '<h1>' . h(t('confirm_invalid_title', $lang)) . '</h1><p>' . h(t('confirm_invalid', $lang)) . '</p>', $lang);
+page(t('confirm_invalid_title', $lang), '<h1>' . h(t('confirm_invalid_title', $lang)) . '</h1><p>' . h(t('confirm_invalid', $lang)) . '</p>' . back_to_form($lang), $lang);
