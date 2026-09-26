@@ -1,0 +1,86 @@
+name: Tests et déploiement o2switch (FTPS)
+
+# manifesto-sign.otspi.org est servi par o2switch. Chaque push sur main passe le test de bout en bout,
+# puis envoie le code. config.php et data/ (base SQLite) restent sur le serveur et ne sont jamais touchés.
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('tests-{0}', github.ref) || 'deploy' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Test de bout en bout
+        run: bash tests/flow.sh
+
+  deploy:
+    needs: tests
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Environnement GitHub : on peut y exiger une approbation manuelle avant chaque mise en production.
+    environment:
+      name: production
+      url: https://manifesto-sign.otspi.org/
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Installation de lftp
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+
+      # Compte FTP dédié, cantonné au répertoire de l'application (le parent de public/) ; TLS obligatoire
+      # et certificat vérifié. Seuls les dossiers de code sont envoyés, config.php et data/ ne sont jamais
+      # visés. src/ part avant public/ : pendant les quelques secondes de l'envoi, d'anciennes pages avec
+      # la nouvelle bibliothèque restent fonctionnelles, alors que l'inverse appellerait des fonctions
+      # absentes. --delete retire le code supprimé du dépôt ; .well-known/ (certificats) est préservé.
+      - name: Déploiement FTPS
+        env:
+          FTP_HOST: ${{ vars.O2_FTP_HOST }}
+          FTP_DIR: ${{ vars.O2_SIGN_FTP_DIR || '.' }}
+          FTP_USERNAME: ${{ secrets.O2_SIGN_FTP_USERNAME }}
+          LFTP_PASSWORD: ${{ secrets.O2_SIGN_FTP_PASSWORD }}
+        run: |
+          lftp -u "$FTP_USERNAME" --env-password "ftp://$FTP_HOST" -e "
+            set cmd:fail-exit yes;
+            set ftp:ssl-force yes;
+            set ftp:ssl-protect-data yes;
+            set ssl:verify-certificate yes;
+            set ftp:passive-mode yes;
+            set net:max-retries 2;
+            cd '$FTP_DIR';
+            mkdir -p -f bin cron src public;
+            mirror --reverse --delete --verbose --no-perms bin/ bin/;
+            mirror --reverse --delete --verbose --no-perms cron/ cron/;
+            mirror --reverse --delete --verbose --no-perms src/ src/;
+            mirror --reverse --delete --verbose --no-perms --exclude '^\\.well-known/' public/ public/;
+            bye"
+
+      # Contrôle en lecture seule : la liste publique répond (ce qui déclenche aussi la migration de la
+      # base) et les fichiers hors de public/ ne sont pas servis.
+      - name: Vérification du site
+        run: |
+          set -euo pipefail
+          U=https://manifesto-sign.otspi.org
+          curl -fsS -m 20 "$U/signataires.php" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d["signataires"], list) and "total" in d; print("liste publique :", d["total"], "signature(s)")'
+          [ "$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$U/")" = 200 ] || { echo "formulaire inaccessible"; exit 1; }
+          for p in /config.php /src/lib.php /bin/moderation.php /data/signatures.sqlite; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$U$p")
+            [ "$code" = 404 ] || [ "$code" = 403 ] || { echo "$p exposé ($code)"; exit 1; }
+          done
+          echo "Site vérifié."

@@ -20,6 +20,18 @@ Protections : jeton de formulaire signé avec délai minimal (aucun cookie, aucu
 3. Planifier `php cron/purge.php` une fois par jour.
 4. Prérequis : PHP 8.1 ou plus avec PDO SQLite ; la fonction `mail()` opérationnelle, avec SPF et DKIM sur le domaine d'expéditeur.
 
+## Déploiement
+
+Le workflow `.github/workflows/deploy.yml` passe le test de bout en bout à chaque pull request et à chaque push sur `main` ; sur `main`, il envoie ensuite `bin/`, `cron/`, `src/` et `public/` en FTPS (TLS obligatoire, certificat vérifié), puis contrôle le site en lecture seule. `config.php` et `data/` ne sont jamais touchés ; le code retiré du dépôt est supprimé du serveur (sauf `public/.well-known/`).
+
+Réglages du dépôt GitHub :
+
+- secrets `O2_SIGN_FTP_USERNAME` et `O2_SIGN_FTP_PASSWORD` : compte FTP **dédié**, cantonné au répertoire de l'application (le parent de `public/`) ;
+- variable `O2_FTP_HOST` : hôte FTP o2switch ; variable facultative `O2_SIGN_FTP_DIR` si l'application n'est pas à la racine du compte FTP ;
+- environnement `production` (créé au premier déploiement) : on peut y exiger une approbation avant chaque mise en ligne.
+
+Avant un déploiement qui modifie le schéma, sauvegarder `data/signatures.sqlite` avec ses fichiers `-wal` et `-shm`.
+
 ## Tests
 
 `bash tests/flow.sh` : test de bout en bout (Docker requis) couvrant l'inscription, la confirmation, la liste publique, le retrait et les protections anti-abus.
