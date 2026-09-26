@@ -19,7 +19,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (($_POST['website'] ?? '') !== '') {
         // Piège à robots : champ invisible rempli. On répond comme en cas de succès, sans rien faire.
-        page(t('sent_title', $lang), '<h1>' . h(t('sent_title', $lang)) . '</h1><p>' . h(t('sent', $lang)) . '</p>', $lang);
+        page(t('sent_title', $lang), '<h1>' . h(t('sent_title', $lang)) . '</h1><p>' . h(t('sent', $lang)) . '</p>', $lang, audience: true);
         exit;
     }
     if ($state !== 'ok' || cross_site_post()) {
@@ -72,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
             if ($error === null) {
-                page(t('sent_title', $lang), '<h1>' . h(t('sent_title', $lang)) . '</h1><p>' . h(t('sent', $lang)) . '</p>', $lang);
+                page(t('sent_title', $lang), '<h1>' . h(t('sent_title', $lang)) . '</h1><p>' . h(t('sent', $lang)) . '</p>', $lang, audience: true);
                 exit;
             }
         }
@@ -98,4 +98,4 @@ $body = '<p class="lang"><a href="?lang=' . $other . '">' . strtoupper($other) .
     . '<p><label><input type="checkbox" name="publier" value="1"' . ($old['publier'] ? ' checked' : '') . '> ' . h(t('publish', $lang)) . '</label></p>'
     . '<p><button type="submit">' . h(t('submit', $lang)) . '</button></p></form>'
     . '<p class="privacy">' . h(t('privacy', $lang)) . '</p>';
-page(t('title', $lang), $body, $lang);
+page(t('title', $lang), $body, $lang, audience: true);
