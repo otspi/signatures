@@ -91,6 +91,8 @@ if ($post) {
     $action = (string) ($_POST['a'] ?? '');
     $id = (int) ($_POST['id'] ?? 0);
     if (cross_site_post() || !in_array($action, MODERATION_ACTIONS, true) || $id <= 0) {
+        error_log(sprintf('otspi-signatures : action d\'administration refusée (#%d, action « %s », Sec-Fetch-Site=%s, Origin=%s)',
+            $id, $action, $_SERVER['HTTP_SEC_FETCH_SITE'] ?? '-', $_SERVER['HTTP_ORIGIN'] ?? '-'));
         http_response_code(400);
         page('Administration des signatures', '<h1>Action refusée</h1><p>Requête invalide ou envoyée depuis un autre site.</p>'
             . '<p><a href="' . h(url('admin.php', $auth + ['f' => $filter])) . '">Retour à la liste</a></p>', 'fr');

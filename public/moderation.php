@@ -20,13 +20,23 @@ if ($signature === false || preg_match('/^[0-9a-f]{64}$/', $token) !== 1
 }
 
 $action = (string) ($_POST['a'] ?? '');
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && !cross_site_post() && in_array($action, MODERATION_ACTIONS, true)) {
-    moderate($id, $action);
-    $done = ['valider' => 'Signature validée : elle sera publiée au prochain rafraîchissement de la liste.',
-        'masquer' => 'Signature masquée : elle reste comptée, le nom ne sera jamais publié.',
-        'supprimer' => 'Signature supprimée avec ses données.'][$action];
-    page('Modération', '<h1>Modération</h1><p>' . h($done) . '</p>', 'fr');
-    exit;
+$notice = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (cross_site_post() || !in_array($action, MODERATION_ACTIONS, true)) {
+        // Refus signalé à l'écran et journalisé avec les en-têtes reçus, pour diagnostiquer un navigateur.
+        error_log(sprintf('otspi-signatures : modération refusée (#%d, action « %s », Sec-Fetch-Site=%s, Origin=%s)',
+            $id, $action, $_SERVER['HTTP_SEC_FETCH_SITE'] ?? '-', $_SERVER['HTTP_ORIGIN'] ?? '-'));
+        http_response_code(400);
+        $notice = '<p class="error" role="alert">Action refusée : la requête ne vient pas de cette page ou l’action est inconnue. Aucune modification.</p>';
+    } else {
+        $done = moderate($id, $action)
+            ? ['valider' => 'Signature validée : elle sera publiée au prochain rafraîchissement de la liste.',
+                'masquer' => 'Signature masquée : elle reste comptée, le nom ne sera jamais publié.',
+                'supprimer' => 'Signature supprimée avec ses données.'][$action]
+            : 'Aucune modification : la signature est introuvable ou n’est plus confirmée.';
+        page('Modération', '<h1>Modération</h1><p role="status">' . h($done) . '</p>', 'fr');
+        exit;
+    }
 }
 
 $state = match (true) {
@@ -39,7 +49,7 @@ $hidden = '<input type="hidden" name="id" value="' . $id . '"><input type="hidde
 $button = static fn (string $action, string $label): string =>
     '<form method="post" action="moderation.php">' . $hidden . '<input type="hidden" name="a" value="' . $action . '">'
     . '<button type="submit">' . h($label) . '</button></form>';
-page('Modération', '<h1>Signature #' . $id . '</h1>'
+page('Modération', '<h1>Signature #' . $id . '</h1>' . $notice
     . '<p>État : <strong>' . h($state) . '</strong>. E-mail (jamais publié) : ' . h($signature['email']) . '</p>'
     . recap_html($signature, 'fr')
     . '<div class="moderation-actions">'
