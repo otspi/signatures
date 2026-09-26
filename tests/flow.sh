@@ -45,6 +45,23 @@ curl -s "$U/signataires.php" | grep -q Lovelace && ko "modération depuis un aut
 curl -s -H 'Sec-Fetch-Site: same-origin' -d "id=$MID&t=$MT&a=valider" "$U/moderation.php" | grep -q 'Signature validée' && ok "validation par le lien de modération" || ko "validation"
 curl -s "$U/signataires.php" | grep -q Lovelace && ok "publiée après validation" || ko "absente de la liste"
 curl -s "$U/signataires.php" | grep -q 'ada@example.org' && ko "e-mail publié !" || ok "adresse e-mail jamais publiée"
+# Administration : lien magique vers l'adresse de contact, actions en POST, suppression confirmée
+curl -s "$U/admin.php" | grep -q 'Recevoir un lien' && ok "administration : demande de lien" || ko "page d'accès admin"
+curl -s "$U/admin.php" | grep -q 'admin-table' && ko "administration sans accès !" || ok "administration fermée sans lien"
+curl -s -o /dev/null -H 'Sec-Fetch-Site: same-origin' -d "a=lien" "$U/admin.php"
+ADM=$(grep -o 'admin.php?exp=[0-9]*&t=[0-9a-f]*' "$WORK/data/mail.log" | tail -1)
+grep -F -B6 "$ADM" "$WORK/data/mail.log" | grep -q 'TO: contact@otspi.org' && ok "lien d'accès envoyé à la seule adresse de contact" || ko "destinataire du lien admin"
+AEXP=$(echo "$ADM" | sed 's/.*exp=\([0-9]*\).*/\1/'); AT=$(echo "$ADM" | sed 's/.*t=//')
+curl -s "$U/$ADM&f=publiees" | grep -q 'Lovelace' && ok "administration : liste des publiées" || ko "liste admin"
+[ "$(curl -s -o /dev/null -w '%{http_code}' "$U/admin.php?exp=$AEXP&t=$(printf '0%.0s' $(seq 64))")" = 403 ] && ok "lien d'accès falsifié refusé" || ko "jeton admin"
+[ "$(curl -s -o /dev/null -w '%{http_code}' "$U/admin.php?exp=$((AEXP - 3600))&t=$AT")" = 403 ] && ok "lien d'accès expiré refusé" || ko "expiration admin"
+HID=$(docker exec "$CID" php -r 'require "/app/src/lib.php"; echo db()->query("SELECT id FROM signatures WHERE email = \"old+bis@example.org\"")->fetchColumn();')
+[ "$(curl -s -H 'Sec-Fetch-Site: same-origin' -d "exp=$AEXP&t=$AT&a=supprimer&id=$HID" "$U/admin.php" | grep -c 'Supprimer définitivement')" = 1 ] && ok "suppression : confirmation demandée" || ko "confirmation de suppression"
+[ "$(curl -s "$U/signataires.php" | grep -c Hopper)" = 2 ] && ok "rien supprimé sans confirmation" || ko "supprimé sans confirmation"
+curl -s -o /dev/null -H 'Sec-Fetch-Site: cross-site' -d "exp=$AEXP&t=$AT&a=supprimer&id=$HID&ok=1" "$U/admin.php"
+[ "$(curl -s "$U/signataires.php" | grep -c Hopper)" = 2 ] && ok "action d'administration intersite refusée" || ko "admin intersite"
+R=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -H 'Sec-Fetch-Site: same-origin' -d "exp=$AEXP&t=$AT&a=supprimer&id=$HID&ok=1&f=publiees" "$U/admin.php")
+echo "$R" | grep -q '^303 .*fait=supprimer' && [ "$(curl -s "$U/signataires.php" | grep -c Hopper)" = 1 ] && ok "suppression confirmée (doublon retiré)" || ko "suppression admin ($R)"
 FT=$(ft); sleep 5
 curl -s -o /dev/null -d "ft=$FT&prenom=Ada&nom=Lovelace&email=Ada%2Bbis@example.org" "$U/"
 grep -q 'TO: ada+bis@example.org' "$WORK/data/mail.log" && ko "doublon par alias +tag" || ok "alias +tag d'une adresse déjà signée : aucun nouvel envoi"
