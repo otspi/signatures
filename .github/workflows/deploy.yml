@@ -80,7 +80,10 @@ jobs:
           set -euo pipefail
           U=https://manifesto-sign.otspi.org
           [ "$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$U/")" = 200 ] || { echo "formulaire inaccessible"; exit 1; }
-          curl -s -m 20 "$U/page-inexistante" | grep -q 'class="card"' || { echo "page 404 de l'application absente"; exit 1; }
+          # Page lue en entier avant la recherche : avec « curl | grep -q » et pipefail, grep s'arrête au
+          # premier résultat et curl, coupé en plein transfert, fait échouer l'étape (code 92).
+          page=$(curl -s -m 20 "$U/page-inexistante")
+          grep -q 'class="card"' <<<"$page" || { echo "page 404 de l'application absente"; exit 1; }
           for p in /config.php /src/lib.php /bin/moderation.php /data/signatures.sqlite; do
             code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$U$p")
             [ "$code" = 404 ] || [ "$code" = 403 ] || { echo "$p exposé ($code)"; exit 1; }
