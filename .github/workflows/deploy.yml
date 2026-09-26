@@ -79,10 +79,15 @@ jobs:
         run: |
           set -euo pipefail
           U=https://manifesto-sign.otspi.org
-          [ "$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$U/")" = 200 ] || { echo "formulaire inaccessible"; exit 1; }
-          curl -s -m 20 "$U/page-inexistante" | grep -q 'class="card"' || { echo "page 404 de l'application absente"; exit 1; }
+          # Erreurs réseau passagères (flux HTTP/2 interrompu, code 92) : nouvelles tentatives, et un échec
+          # de curl ne coupe pas le script ; seul le résultat attendu décide.
+          body() { curl -s --retry 3 --retry-all-errors -m 20 "$1" || true; }
+          status() { curl -s -o /dev/null -w '%{http_code}' --retry 3 --retry-all-errors -m 20 "$1" || true; }
+          [ "$(status "$U/")" = 200 ] || { echo "formulaire inaccessible"; exit 1; }
+          page404=$(body "$U/page-inexistante")
+          grep -q 'class="card"' <<< "$page404" || { echo "page 404 de l'application absente"; exit 1; }
           for p in /config.php /src/lib.php /bin/moderation.php /data/signatures.sqlite; do
-            code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$U$p")
+            code=$(status "$U$p")
             [ "$code" = 404 ] || [ "$code" = 403 ] || { echo "$p exposé ($code)"; exit 1; }
           done
           echo "Site vérifié."
