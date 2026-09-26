@@ -40,17 +40,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $token = new_token();
             $withdraw = new_token();
             $now = time();
-            $existing = $pdo->prepare('SELECT id, confirmed_at, last_mail_at FROM signatures WHERE email = ?');
-            $existing->execute([$email]);
+            // Unicité vérifiée sans l'alias « +… » : une même boîte ne signe qu'une fois.
+            $existing = $pdo->prepare('SELECT id, confirmed_at, last_mail_at FROM signatures WHERE email_key = ?');
+            $existing->execute([email_key($email)]);
             $row = $existing->fetch();
             $sendConfirm = true;
             if ($row === false) {
-                $pdo->prepare('INSERT INTO signatures (email, prenom, nom, fonction, organisation, publier, lang, confirm_hash, withdraw_hash, created_at, last_mail_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)')
-                    ->execute([$email, $prenom, $nom, $fonction, $organisation, $old['publier'] ? 1 : 0, $lang, token_hash($token), token_hash($withdraw), $now, $now]);
+                // ON CONFLICT : deux envois simultanés pour la même adresse ne provoquent pas d'erreur ;
+                // le second est traité comme un renvoi trop rapproché.
+                $insert = $pdo->prepare('INSERT INTO signatures (email, email_key, prenom, nom, fonction, organisation, publier, lang, confirm_hash, withdraw_hash, created_at, last_mail_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING');
+                $insert->execute([$email, email_key($email), $prenom, $nom, $fonction, $organisation, $old['publier'] ? 1 : 0, $lang, token_hash($token), token_hash($withdraw), $now, $now]);
+                $sendConfirm = $insert->rowCount() === 1;
             } elseif ($row['confirmed_at'] === null && $now - (int) $row['last_mail_at'] > 600) {
-                // Demande non confirmée : on met à jour les données et on renvoie un lien (au plus toutes les 10 minutes).
-                $pdo->prepare('UPDATE signatures SET prenom=?, nom=?, fonction=?, organisation=?, publier=?, lang=?, confirm_hash=?, withdraw_hash=?, created_at=?, last_mail_at=? WHERE id=?')
-                    ->execute([$prenom, $nom, $fonction, $organisation, $old['publier'] ? 1 : 0, $lang, token_hash($token), token_hash($withdraw), $now, $now, $row['id']]);
+                // Demande non confirmée : on met à jour les données (y compris l'alias choisi) et on renvoie un
+                // lien, au plus toutes les 10 minutes.
+                $pdo->prepare('UPDATE signatures SET email=?, prenom=?, nom=?, fonction=?, organisation=?, publier=?, lang=?, confirm_hash=?, withdraw_hash=?, created_at=?, last_mail_at=? WHERE id=?')
+                    ->execute([$email, $prenom, $nom, $fonction, $organisation, $old['publier'] ? 1 : 0, $lang, token_hash($token), token_hash($withdraw), $now, $now, $row['id']]);
             } else {
                 // Déjà confirmée ou renvoi trop rapproché : réponse identique, pour ne pas révéler si l'adresse est connue.
                 $sendConfirm = false;

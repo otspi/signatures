@@ -35,7 +35,15 @@ return [
         'en' => 'If the address is valid, a confirmation e-mail has just been sent. Your signature will only be recorded once you click the link it contains (valid for 48 hours). Please also check your spam folder.',
     ],
     'confirmed_title' => ['fr' => 'Signature confirmée', 'en' => 'Signature confirmed'],
-    'confirmed' => ['fr' => 'Merci, votre signature est enregistrée. Un lien pour la retirer vous a été envoyé par e-mail.', 'en' => 'Thank you, your signature is recorded. A link to withdraw it has been sent to you by e-mail.'],
+    'confirmed' => [
+        'fr' => 'Merci, votre signature est enregistrée. Si vous avez accepté sa publication, elle apparaîtra dans la liste des signataires après vérification. Un lien pour la retirer vous a été envoyé par e-mail.',
+        'en' => 'Thank you, your signature is recorded. If you agreed to its publication, it will appear in the list of signatories once checked. A link to withdraw it has been sent to you by e-mail.',
+    ],
+    'confirm_title' => ['fr' => 'Confirmer ma signature', 'en' => 'Confirm my signature'],
+    'confirm_ask' => ['fr' => 'Dernière étape : cliquez sur le bouton pour confirmer votre signature du manifeste.', 'en' => 'Last step: click the button to confirm your signature of the manifesto.'],
+    'confirm_button' => ['fr' => 'Confirmer ma signature', 'en' => 'Confirm my signature'],
+    'err_server_title' => ['fr' => 'Erreur temporaire', 'en' => 'Temporary error'],
+    'err_server' => ['fr' => 'Une erreur inattendue est survenue. Réessayez dans quelques minutes ou écrivez à contact@otspi.org.', 'en' => 'An unexpected error occurred. Try again in a few minutes or write to contact@otspi.org.'],
     'confirm_invalid_title' => ['fr' => 'Lien invalide ou expiré', 'en' => 'Invalid or expired link'],
     'confirm_invalid' => ['fr' => 'Ce lien n’est plus valide. Vous pouvez signer à nouveau depuis le formulaire.', 'en' => 'This link is no longer valid. You can sign again using the form.'],
     'withdraw_title' => ['fr' => 'Retirer ma signature', 'en' => 'Withdraw my signature'],
@@ -45,8 +53,8 @@ return [
     'withdrawn' => ['fr' => 'Votre signature et vos données ont été supprimées. Le retrait de la liste publique est effectif au prochain rafraîchissement du site (sous 24 heures).', 'en' => 'Your signature and your data have been deleted. Removal from the public list takes effect at the next refresh of the website (within 24 hours).'],
     'mail_confirm_subject' => ['fr' => 'Confirmez votre signature du manifeste OTSPI', 'en' => 'Confirm your signature of the OTSPI manifesto'],
     'mail_confirm_body' => [
-        'fr' => "Bonjour %s,\n\nPour confirmer votre signature du manifeste pour une identité numérique libre et ouverte, cliquez sur ce lien (valable 48 heures) :\n\n%s\n\nSi vous n'êtes pas à l'origine de cette demande, ignorez ce message : rien ne sera enregistré.\n\nOTSPI — contact@otspi.org",
-        'en' => "Hello %s,\n\nTo confirm your signature of the manifesto for a free and open digital identity, click this link (valid for 48 hours):\n\n%s\n\nIf you did not make this request, ignore this message: nothing will be recorded.\n\nOTSPI — contact@otspi.org",
+        'fr' => "Bonjour %s,\n\nPour confirmer votre signature du manifeste pour une identité numérique libre et ouverte, ouvrez ce lien (valable 48 heures) puis cliquez sur le bouton de confirmation :\n\n%s\n\nSi vous n'êtes pas à l'origine de cette demande, ignorez ce message : rien ne sera enregistré.\n\nOTSPI — contact@otspi.org",
+        'en' => "Hello %s,\n\nTo confirm your signature of the manifesto for a free and open digital identity, open this link (valid for 48 hours) and click the confirmation button:\n\n%s\n\nIf you did not make this request, ignore this message: nothing will be recorded.\n\nOTSPI — contact@otspi.org",
     ],
     'mail_done_subject' => ['fr' => 'Votre signature du manifeste OTSPI est enregistrée', 'en' => 'Your signature of the OTSPI manifesto is recorded'],
     'mail_done_body' => [
