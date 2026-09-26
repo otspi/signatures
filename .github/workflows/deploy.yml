@@ -48,7 +48,8 @@ jobs:
       # et certificat vérifié. Seuls les dossiers de code sont envoyés, config.php et data/ ne sont jamais
       # visés. src/ part avant public/ : pendant les quelques secondes de l'envoi, d'anciennes pages avec
       # la nouvelle bibliothèque restent fonctionnelles, alors que l'inverse appellerait des fonctions
-      # absentes. --delete retire le code supprimé du dépôt ; .well-known/ (certificats) est préservé.
+      # absentes. --delete retire le code supprimé du dépôt ; .well-known/ (certificats), cgi-bin/ et error_log
+      # (créés par le serveur) sont préservés.
       - name: Déploiement FTPS
         env:
           FTP_HOST: ${{ vars.O2_FTP_HOST }}
@@ -68,17 +69,18 @@ jobs:
             mirror --reverse --delete --verbose --no-perms bin/ bin/;
             mirror --reverse --delete --verbose --no-perms cron/ cron/;
             mirror --reverse --delete --verbose --no-perms src/ src/;
-            mirror --reverse --delete --verbose --no-perms --exclude '^\\.well-known/' public/ public/;
+            mirror --reverse --delete --verbose --no-perms --exclude '^\\.well-known/' --exclude '^cgi-bin/' --exclude '^error_log$' public/ public/;
             bye"
 
-      # Contrôle en lecture seule : la liste publique répond (ce qui déclenche aussi la migration de la
-      # base) et les fichiers hors de public/ ne sont pas servis.
+      # Contrôle en lecture seule : formulaire et page d'erreur de l'application, fichiers hors de public/
+      # non servis. signataires.php n'est pas interrogé : o2switch ne répond pas à cette adresse depuis
+      # les serveurs de GitHub Actions (délai dépassé), alors qu'elle répond normalement ailleurs.
       - name: Vérification du site
         run: |
           set -euo pipefail
           U=https://manifesto-sign.otspi.org
-          curl -fsS -m 20 "$U/signataires.php" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert isinstance(d["signataires"], list) and "total" in d; print("liste publique :", d["total"], "signature(s)")'
           [ "$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$U/")" = 200 ] || { echo "formulaire inaccessible"; exit 1; }
+          curl -s -m 20 "$U/page-inexistante" | grep -q 'class="card"' || { echo "page 404 de l'application absente"; exit 1; }
           for p in /config.php /src/lib.php /bin/moderation.php /data/signatures.sqlite; do
             code=$(curl -s -o /dev/null -w '%{http_code}' -m 20 "$U$p")
             [ "$code" = 404 ] || [ "$code" = 403 ] || { echo "$p exposé ($code)"; exit 1; }

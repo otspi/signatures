@@ -22,7 +22,7 @@ Protections : jeton de formulaire signé avec délai minimal (aucun cookie, aucu
 
 ## Déploiement
 
-Le workflow `.github/workflows/deploy.yml` passe le test de bout en bout à chaque pull request et à chaque push sur `main` ; sur `main`, il envoie ensuite `bin/`, `cron/`, `src/` et `public/` en FTPS (TLS obligatoire, certificat vérifié), puis contrôle le site en lecture seule. `config.php` et `data/` ne sont jamais touchés ; le code retiré du dépôt est supprimé du serveur (sauf `public/.well-known/`).
+Le workflow `.github/workflows/deploy.yml` passe le test de bout en bout à chaque pull request et à chaque push sur `main` ; sur `main`, il envoie ensuite `bin/`, `cron/`, `src/` et `public/` en FTPS (TLS obligatoire, certificat vérifié), puis contrôle le site en lecture seule. `config.php` et `data/` ne sont jamais touchés ; le code retiré du dépôt est supprimé du serveur (sauf `public/.well-known/`, `public/cgi-bin/` et `public/error_log`, créés par le serveur).
 
 Réglages du dépôt GitHub :
 
