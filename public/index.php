@@ -22,7 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         page(t('sent_title', $lang), '<h1>' . h(t('sent_title', $lang)) . '</h1><p>' . h(t('sent', $lang)) . '</p>', $lang);
         exit;
     }
-    if ($state !== 'ok') {
+    if ($state !== 'ok' || cross_site_post()) {
         $error = 'err_form';
     } elseif (rate_limited(5, 3600)) {
         $error = 'err_rate';
@@ -45,7 +45,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $existing->execute([email_key($email)]);
             $row = $existing->fetch();
             $sendConfirm = true;
-            if ($row === false) {
+            if (($row === false || $row['confirmed_at'] === null) && mail_cap_reached()) {
+                // Plafond global atteint : rien n'est enregistré, la personne réessaiera plus tard.
+                $error = 'err_rate';
+                $sendConfirm = false;
+            } elseif ($row === false) {
                 // ON CONFLICT : deux envois simultanés pour la même adresse ne provoquent pas d'erreur ;
                 // le second est traité comme un renvoi trop rapproché.
                 $insert = $pdo->prepare('INSERT INTO signatures (email, email_key, prenom, nom, fonction, organisation, publier, lang, confirm_hash, withdraw_hash, created_at, last_mail_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING');
@@ -60,8 +64,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Déjà confirmée ou renvoi trop rapproché : réponse identique, pour ne pas révéler si l'adresse est connue.
                 $sendConfirm = false;
             }
+            $recap = ['prenom' => $prenom, 'nom' => $nom, 'fonction' => $fonction, 'organisation' => $organisation, 'publier' => $old['publier']];
             if ($sendConfirm) {
-                $sent = send_mail($email, t('mail_confirm_subject', $lang), sprintf(t('mail_confirm_body', $lang), $prenom, url('confirm.php', ['t' => $token, 'lang' => $lang])));
+                $sent = send_mail($email, t('mail_confirm_subject', $lang), sprintf(t('mail_confirm_body', $lang), recap_text($recap, $lang), url('confirm.php', ['t' => $token, 'lang' => $lang])));
                 if (!$sent) {
                     $error = 'err_mail';
                 }

@@ -16,9 +16,10 @@ if (preg_match('/^[0-9a-f]{64}$/', $token) === 1) {
     $row->execute([token_hash($token)]);
     $signature = $row->fetch();
     if ($signature !== false && time() - (int) $signature['created_at'] <= CONFIRM_TTL) {
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST' || cross_site_post()) {
             page(t('confirm_title', $lang),
                 '<h1>' . h(t('confirm_title', $lang)) . '</h1><p>' . h(t('confirm_ask', $lang)) . '</p>'
+                . recap_html($signature, $lang)
                 . '<form method="post" action="?lang=' . $lang . '"><input type="hidden" name="t" value="' . h($token) . '">'
                 . '<button type="submit">' . h(t('confirm_button', $lang)) . '</button></form>', $lang);
             exit;
@@ -29,7 +30,7 @@ if (preg_match('/^[0-9a-f]{64}$/', $token) === 1) {
         $update->execute([time(), token_hash(new_token()), token_hash($withdraw), $signature['id']]);
         if ($update->rowCount() === 1) {
             $l = $signature['lang'] === 'en' ? 'en' : 'fr';
-            send_mail($signature['email'], t('mail_done_subject', $l), sprintf(t('mail_done_body', $l), $signature['prenom'], url('withdraw.php', ['t' => $withdraw, 'lang' => $l])));
+            send_mail($signature['email'], t('mail_done_subject', $l), sprintf(t('mail_done_body', $l), url('withdraw.php', ['t' => $withdraw, 'lang' => $l])));
             if ((int) $signature['publier'] === 1) {
                 // Rien n'est publié avant validation (bin/moderation.php) : on prévient la personne qui modère.
                 $who = trim($signature['prenom'] . ' ' . $signature['nom']);
