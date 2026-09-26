@@ -11,7 +11,7 @@ $valid = preg_match('/^[0-9a-f]{64}$/', $token) === 1;
 $pdo = db();
 $hash = $valid ? token_hash($token) : '';
 
-if ($valid && $_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($valid && $_SERVER['REQUEST_METHOD'] === 'POST' && !cross_site_post()) {
     $delete = $pdo->prepare('DELETE FROM signatures WHERE withdraw_hash = ?');
     $delete->execute([$hash]);
     if ($delete->rowCount() > 0) {
