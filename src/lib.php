@@ -168,6 +168,8 @@ function send_mail(string $to, string $subject, string $body): bool
         'Content-Type: text/plain; charset=UTF-8',
         'Content-Transfer-Encoding: 8bit',
         'Auto-Submitted: auto-generated',
+        'Date: ' . date('r'),
+        'Message-ID: <' . bin2hex(random_bytes(12)) . '@' . (parse_url(config()['base_url'], PHP_URL_HOST) ?: 'localhost') . '>',
     ];
     $encodedSubject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
     if (config()['mail_dry_run'] ?? false) {
