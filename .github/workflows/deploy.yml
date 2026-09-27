@@ -27,8 +27,20 @@ jobs:
       - name: Test de bout en bout
         run: bash tests/flow.sh
 
+  navigateur:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Chromium piloté par Playwright : preuve de travail, partage, clé de sécurité virtuelle, sélection par lot.
+      - name: Tests dans un vrai navigateur
+        run: bash tests/navigateur.sh
+
   deploy:
-    needs: tests
+    needs: [tests, navigateur]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # Environnement GitHub : on peut y exiger une approbation manuelle avant chaque mise en production.

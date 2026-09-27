@@ -52,6 +52,8 @@ Avant un déploiement qui modifie le schéma, sauvegarder `data/signatures.sqlit
 
 `bash tests/flow.sh` : test de bout en bout (Docker requis) couvrant l'inscription, la confirmation, la modération, l'administration par clé de sécurité (clé virtuelle `tests/authenticator.php` : enregistrement, PIN absent, signature altérée, autre origine, rejeu, compteur, révocation), la liste publique, le retrait et les protections anti-abus.
 
+`bash tests/navigateur.sh` : tests dans un vrai navigateur (Chromium piloté par Playwright, image Docker officielle, partageant le réseau du conteneur PHP pour rester sur `http://localhost`) : preuve de travail calculée par le navigateur, copie du lien de partage, enregistrement et connexion avec une clé de sécurité virtuelle (refusée sans code PIN), sélection par lot, aucune erreur JavaScript ni CSP. La mesure d'audience y est neutralisée. La CI les passe avant tout déploiement.
+
 ## Données personnelles
 
 Base légale : consentement. Conservation : demandes non confirmées 7 jours ; signatures pendant la campagne puis deux ans au plus. L'adresse e-mail n'est jamais publiée ni transmise. Le texte d'information affiché sur le formulaire est dans `src/texts.php` et doit rester aligné avec les mentions légales de www.otspi.org.
