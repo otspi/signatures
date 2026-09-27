@@ -10,6 +10,7 @@
   --accent: #003399;
   --accent-strong: #0f2042;
   --error: #b00020;
+  --ok: #1a7f37;
   --radius: 10px;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   color-scheme: light;
@@ -25,6 +26,7 @@
     --accent: #7ea2ff;
     --accent-strong: #c9d6ff;
     --error: #ff8a9a;
+    --ok: #57d37a;
     color-scheme: dark;
   }
 }
@@ -194,3 +196,36 @@ button.danger:hover { background: color-mix(in srgb, var(--error) 12%, transpare
   .admin-table .dates { white-space: normal; }
   .admin-table .row-actions { margin-top: .4rem; }
 }
+
+/* Preuve horodatée d'une signature */
+.proof-status {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  margin: 0 0 1.25rem;
+  padding: .85rem 1.1rem;
+  font-weight: 700;
+  font-size: 1.1rem;
+  border-left: 5px solid var(--text-muted);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-muted) 10%, transparent);
+}
+.proof-status.ok { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, transparent); }
+.proof-status.ok span { color: var(--ok); font-size: 1.4rem; line-height: 1; }
+.proof-status.error { border-color: var(--error); background: color-mix(in srgb, var(--error) 12%, transparent); }
+.proof-details dd code { font-size: .88rem; overflow-wrap: anywhere; }
+.checks { list-style: none; padding: 0; margin: 0 0 1.25rem; }
+.checks li { position: relative; padding: .2rem 0 .2rem 1.75rem; }
+.checks li::before { content: "✓"; position: absolute; left: .2rem; color: var(--ok); font-weight: 700; }
+pre {
+  margin: 0 0 1.25rem;
+  padding: .75rem 1rem;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text-muted) 7%, transparent);
+  font-size: .85rem;
+}
+.proof-details { grid-template-columns: 1fr; gap: 0; }
+.proof-details dt { margin-top: .6rem; font-size: .9rem; }
+.proof-details dt:first-child { margin-top: 0; }

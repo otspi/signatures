@@ -16,6 +16,10 @@ return [
     'admin_aaguids' => [],
     // Facultatif : difficulté de la preuve de travail anti-robots (bits nuls, 18 par défaut ; +1 double le calcul).
     // 'pow_bits' => 18,
+    // Autorité d'horodatage (API JSON RFC 3161) et chaîne épinglée pour vérifier ses jetons. Par défaut : le
+    // staging d'OTSPI et src/tsa-staging-ca.pem. 'tsa_url' => '' désactive l'horodatage.
+    // 'tsa_url' => 'https://api.staging.open-eidas.eu',
+    // 'tsa_ca' => __DIR__ . '/src/tsa-staging-ca.pem',
     // Pour les essais : ne pas envoyer, journaliser dans mail_log.
     'mail_dry_run' => false,
     'mail_log' => __DIR__ . '/data/mail.log',
