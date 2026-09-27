@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$(mktemp -d)"; mkdir -p "$WORK/data"
 cat > "$WORK/config.php" <<'PHP'
 <?php
-return ['base_url'=>'http://localhost:8090','db_path'=>'/work/data/s.sqlite','secret'=>'test-secret','mail_from'=>'no-reply@example.org','mail_from_name'=>'OTSPI','contact'=>'contact@otspi.org','mail_dry_run'=>true,'mail_log'=>'/work/data/mail.log','mail_hourly_cap'=>2,'pow_bits'=>8,'tsa_url'=>'http://127.0.0.1:8091','tsa_ca'=>'/work/tsa/ca.pem'];
+return ['base_url'=>'http://localhost:8090','db_path'=>'/work/data/s.sqlite','secret'=>'test-secret','mail_from'=>'no-reply@example.org','mail_from_name'=>'OTSPI','contact'=>'contact@otspi.org','mail_dry_run'=>true,'mail_log'=>'/work/data/mail.log','mail_hourly_cap'=>2,'pow_bits'=>8,'tsa_url'=>'http://127.0.0.1:8091','tsa_ca'=>'/work/tsa/ca.pem','backup_certificate'=>'/work/tsa/backup.pem'];
 PHP
 # Base à l'ancien schéma (sans modération) avec une signature confirmée, pour tester la migration
 docker run --rm -v "$WORK":/work php:8.3-cli php -r '$p = new PDO("sqlite:/work/data/s.sqlite");
@@ -38,6 +38,7 @@ openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -subj "/CN=
 openssl req -newkey rsa:2048 -nodes -keyout tsu.key -out tsu.csr -subj "/CN=Test TSU" 2>/dev/null
 printf "extendedKeyUsage=critical,timeStamping\nbasicConstraints=CA:FALSE\n" > ext.cnf
 openssl x509 -req -in tsu.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out tsu.pem -days 2 -extfile ext.cnf 2>/dev/null
+openssl req -x509 -newkey rsa:2048 -nodes -keyout backup.key -out backup.pem -subj "/CN=Sauvegarde de test" -days 2 2>/dev/null
 chmod -R a+rwX /work/tsa'
 cat > "$WORK/config-staging.php" <<'PHP'
 <?php
@@ -233,4 +234,26 @@ curl -s "$U/$C" | grep -q '<dd>Turing</dd>' && ok "le lien renvoyé ouvre la con
 A -o /dev/null -w '%{redirect_url}' -d "a=valider&id=$TID&f=non-confirmees" "$U/admin.php" | grep -q 'fait=rien' && ok "une demande non confirmée ne peut pas être validée" || ko "validation sans confirmation"
 A -o /dev/null -d "a=supprimer&id=$TID&ok=1&f=non-confirmees" "$U/admin.php"
 [ "$(curl -s -o /dev/null -w '%{http_code}' "$U/$C")" = 400 ] && ok "demande non confirmée supprimée" || ko "suppression non confirmée"
+# Tâche quotidienne : registre horodaté, sauvegarde chiffrée, alertes
+SQL() { docker exec "$CID" php -r 'require "/app/src/lib.php"; $r = db()->query($argv[1]); echo $r ? implode("\n", $r->fetchAll(PDO::FETCH_COLUMN)) : "";' "$1"; }
+OUT=$(docker exec "$CID" php /app/cron/purge.php)
+echo "$OUT" | grep -q "registre : 0 entrée(s) en attente" && echo "$OUT" | grep -q 'sauvegarde : signatures-' && ! echo "$OUT" | grep -q alerte && ok "tâche quotidienne : registre et sauvegarde, sans alerte" || ko "tâche quotidienne ($OUT)"
+B=$(ls "$WORK/data/pieces-jointes/" | grep '\.sqlite\.gz\.p7m$' | tail -1)
+docker exec "$CID" sh -c "openssl cms -decrypt -binary -inform DER -in /work/data/pieces-jointes/$B -inkey /work/tsa/backup.key | gunzip > /work/restauree.sqlite"
+[ "$(docker exec "$CID" php -r '$p = new PDO("sqlite:/work/restauree.sqlite"); echo $p->query("SELECT COUNT(*) FROM signatures")->fetchColumn();')" = "$(SQL 'SELECT COUNT(*) FROM signatures')" ] && ok "sauvegarde chiffrée : déchiffrée et restaurée avec la clé privée" || ko "restauration de la sauvegarde"
+grep -q 'SQLite format' "$WORK/data/pieces-jointes/$B" && ko "sauvegarde en clair !" || ok "sauvegarde illisible sans la clé privée"
+grep -A12 'SUBJECT: Sauvegarde des signatures' "$WORK/data/mail.log" | grep -q '@example.org' && ko "données personnelles dans l'e-mail de sauvegarde" || ok "e-mail de sauvegarde sans donnée personnelle"
+curl -s "$U/registre.php" | grep -q 'Chaîne intègre : 1 entrée chaînée' && ok "registre public : première entrée" || ko "page du registre"
+curl -s -o "$WORK/r1.json" "$U/registre.php?n=1&f=json"; curl -s -o "$WORK/r1.tsr" "$U/registre.php?n=1&f=tsr"
+[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["liste_sha256"])' "$WORK/r1.json")" = "$(curl -s "$U/signataires.php" | sha256sum | cut -d' ' -f1)" ] && ok "registre : empreinte identique à la liste publique servie" || ko "empreinte de la liste"
+docker exec "$CID" openssl ts -verify -data /work/r1.json -in /work/r1.tsr -CAfile /work/tsa/ca.pem 2>/dev/null | grep -q 'Verification: OK' && ok "registre : entrée horodatée (openssl ts -verify)" || ko "horodatage du registre"
+SQL "UPDATE registre SET jour = '2000-01-01'" >/dev/null
+docker exec "$CID" php /app/cron/purge.php >/dev/null
+[ "$(python3 -c 'import json,sys; print(json.load(sys.stdin)["precedente_sha256"])' < <(curl -s "$U/registre.php?n=2&f=json"))" = "$(sha256sum < "$WORK/r1.json" | cut -d' ' -f1)" ] && curl -s "$U/registre.php" | grep -q '2 entrées chaînées' && ok "registre : entrée du lendemain chaînée à la précédente" || ko "chaînage du registre"
+SQL "UPDATE registre SET jour = '2000-01-0' || numero" >/dev/null
+touch "$WORK/tsa/panne"
+docker exec "$CID" php /app/cron/purge.php | grep -q 'alerte envoyée' && grep -A8 'SUBJECT: Alerte : tâche quotidienne' "$WORK/data/mail.log" | grep -q "entrée(s) en attente d'horodatage" && ok "alerte : autorité d'horodatage injoignable" || ko "alerte d'horodatage"
+rm "$WORK/tsa/panne"
+SQL "UPDATE registre SET entree = replace(entree, '\"total\"', '\"total \"') WHERE numero = 1" >/dev/null
+curl -s "$U/registre.php" | grep -q 'Chaînage rompu' && docker exec "$CID" php /app/cron/purge.php >/dev/null && [ "$(grep -A10 'SUBJECT: Alerte' "$WORK/data/mail.log" | grep -c 'chaînage rompu')" -ge 1 ] && ok "registre falsifié : chaîne rompue affichée et alerte envoyée" || ko "falsification du registre"
 echo "Tous les tests passent."

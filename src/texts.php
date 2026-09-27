@@ -11,6 +11,7 @@ return [
     'manifesto_url' => ['fr' => 'https://www.otspi.org/manifeste.html', 'en' => 'https://www.otspi.org/en/manifesto.html'],
     'manifesto_link' => ['fr' => 'Lire le manifeste', 'en' => 'Read the manifesto'],
     'legal_url' => ['fr' => 'https://www.otspi.org/mentions-legales.html', 'en' => 'https://www.otspi.org/en/legal-notice.html'],
+    'registry_link' => ['fr' => 'Registre horodaté', 'en' => 'Timestamped register'],
     'legal_link' => ['fr' => 'Mentions légales', 'en' => 'Legal notice'],
     'title' => ['fr' => 'Signer le manifeste', 'en' => 'Sign the manifesto'],
     'heading' => ['fr' => 'Signer le manifeste pour une identité numérique libre et ouverte', 'en' => 'Sign the manifesto for a free and open digital identity'],
