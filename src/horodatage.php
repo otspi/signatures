@@ -95,7 +95,7 @@ function proof_catch_up(): array
         $lang = $signature['lang'] === 'en' ? 'en' : 'fr';
         $claim = db()->prepare('UPDATE signatures SET proof_mailed_at = ? WHERE id = ? AND proof_mailed_at IS NULL');
         $claim->execute([time(), $signature['id']]);
-        if ($claim->rowCount() === 1 && send_mail($signature['email'], t('mail_proof_subject', $lang), sprintf(t('mail_proof_body', $lang), proof_link($signature)))) {
+        if ($claim->rowCount() === 1 && send_mail($signature['email'], t('mail_proof_subject', $lang), sprintf(t('mail_proof_body', $lang), proof_link($signature)), $lang)) {
             $done['envoyees']++;
         }
     }

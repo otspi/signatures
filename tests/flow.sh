@@ -62,6 +62,20 @@ TOKEN=$(grep -o 'confirm.php?t=[0-9a-f]*' "$WORK/data/mail.log" | head -1 | sed 
 [ "$(curl -s "$U/signataires.php" | grep -c Lovelace)" = 0 ] && ok "non publiée avant confirmation" || ko "publiée trop tôt"
 curl -s "$U/" | grep -q 'data-pow="8"' && curl -s -D - -o /dev/null "$U/" | grep -qi "script-src 'self'" && ok "formulaire : preuve de travail proposée" || ko "preuve de travail absente du formulaire"
 curl -s -d "ft=$FT&pow=$(pow "$FT")&prenom=Rejeu&nom=Robot&email=rejeu@example.org&website=" "$U/" | grep -q 'a expiré' && ! grep -q 'rejeu@example.org' "$WORK/data/mail.log" && ok "jeton et preuve de travail à usage unique" || ko "jeton et preuve de travail rejoués"
+grep -q 'Confirmer ma signature</a>' "$WORK/data/mail.log.html" && grep -q '<td class="strong"[^>]*>Labo</td>' "$WORK/data/mail.log.html" && ok "e-mail HTML : bouton et récapitulatif" || ko "e-mail HTML"
+cat > "$WORK/config-mail.php" <<'PHP'
+<?php
+return ['base_url'=>'http://localhost:8090','db_path'=>'/work/data/s.sqlite','secret'=>'test-secret','mail_from'=>'no-reply@example.org','mail_from_name'=>'OTSPI','contact'=>'contact@otspi.org'];
+PHP
+docker exec -e SIGN_CONFIG=/work/config-mail.php "$CID" php -d sendmail_path="sh -c 'cat > /work/raw.eml'" -r 'require "/app/src/lib.php"; send_mail("ada@example.org", "Signature enregistrée é", "Bonjour,\n\nMerci : ça marche.\n\nhttp://localhost:8090/preuve.php?t=abc&lang=fr\n\nOTSPI — contact@otspi.org", "fr");'
+python3 - "$WORK/raw.eml" <<'PY' && ok "e-mail MIME multipart : texte et HTML décodables, sujet UTF-8" || ko "structure MIME"
+import email, email.policy, sys
+m = email.message_from_bytes(open(sys.argv[1], 'rb').read().replace(b'\r\n', b'\n'), policy=email.policy.default)
+text = m.get_body(('plain',)).get_content(); html = m.get_body(('html',)).get_content()
+assert m.get_content_type() == 'multipart/alternative', m.get_content_type()
+assert 'Merci : ça marche.' in text and 'Voir ma preuve horodatée</a>' in html and 'ça marche' in html
+assert all(len(l) <= 998 for l in open(sys.argv[1], 'rb').read().split(b'\n'))
+PY
 grep -q '^Bonjour,$' "$WORK/data/mail.log" && grep -q 'Organisation : Labo' "$WORK/data/mail.log" && ok "e-mail sans nom en tête, avec récapitulatif" || ko "récapitulatif de l'e-mail"
 curl -s "$U/confirm.php?t=$TOKEN" | grep -q 'method="post"' && ok "le lien affiche un bouton de confirmation" || ko "page de confirmation"
 curl -s "$U/confirm.php?t=$TOKEN" | grep -q '<dd>Lovelace</dd>' && ok "récapitulatif sur la page de confirmation" || ko "récapitulatif de la page"

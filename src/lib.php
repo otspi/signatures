@@ -382,32 +382,134 @@ function valid_email(string $email): bool
 
 // ---- Courriels ----------------------------------------------------------------------------------
 
-function send_mail(string $to, string $subject, string $body): bool
+/**
+ * Envoie un e-mail en deux versions (multipart/alternative) : le texte brut, rédigé dans src/texts.php, et un
+ * habillage HTML qui en est tiré automatiquement (mail_html). $lang choisit les libellés des boutons.
+ */
+function send_mail(string $to, string $subject, string $body, string $lang = 'fr'): bool
 {
     $from = config()['mail_from'];
+    $boundary = 'otspi-' . bin2hex(random_bytes(12));
+    $html = mail_html($subject, $body, $lang);
     $headers = [
         'From: ' . config()['mail_from_name'] . ' <' . $from . '>',
         'Reply-To: ' . config()['contact'],
         'MIME-Version: 1.0',
-        'Content-Type: text/plain; charset=UTF-8',
-        'Content-Transfer-Encoding: 8bit',
+        'Content-Type: multipart/alternative; boundary="' . $boundary . '"',
         'Auto-Submitted: auto-generated',
         'Date: ' . date('r'),
         'Message-ID: <' . bin2hex(random_bytes(12)) . '@' . (parse_url(config()['base_url'], PHP_URL_HOST) ?: 'localhost') . '>',
     ];
+    // Quoted-printable : aucune ligne ne dépasse la limite de SMTP (998 octets), même dans le HTML.
+    $message = "--$boundary\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n"
+        . quoted_printable_encode(str_replace("\n", "\r\n", $body)) . "\r\n"
+        . "--$boundary\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n"
+        . quoted_printable_encode($html) . "\r\n--$boundary--\r\n";
     $encodedSubject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
     if (config()['mail_dry_run'] ?? false) {
-        file_put_contents(config()['mail_log'] ?? '/dev/null', "TO: $to\nSUBJECT: $subject\n\n$body\n---\n", FILE_APPEND);
+        $log = config()['mail_log'] ?? '/dev/null';
+        file_put_contents($log, "TO: $to\nSUBJECT: $subject\n\n$body\n---\n", FILE_APPEND);
+        if ($log !== '/dev/null') {
+            file_put_contents($log . '.html', "<!-- TO: $to -->\n$html\n", FILE_APPEND);
+        }
         return true;
     }
-    return mail($to, $encodedSubject, $body, implode("\r\n", $headers), '-f' . $from);
+    return mail($to, $encodedSubject, $message, implode("\r\n", $headers), '-f' . $from);
+}
+
+/** Libellé et style du bouton d'un lien de l'application, selon la page visée. */
+function mail_button(string $link, string $lang): array
+{
+    $page = basename((string) parse_url($link, PHP_URL_PATH));
+    $labels = [
+        'confirm.php' => [['fr' => 'Confirmer ma signature', 'en' => 'Confirm my signature'], true],
+        'preuve.php' => [['fr' => 'Voir ma preuve horodatée', 'en' => 'View my timestamped proof'], true],
+        'withdraw.php' => [['fr' => 'Retirer ma signature', 'en' => 'Withdraw my signature'], false],
+        'admin.php' => [['fr' => 'Ouvrir l’administration', 'en' => 'Open the administration'], true],
+    ];
+    [$label, $primary] = $labels[$page] ?? [['fr' => 'Ouvrir le lien', 'en' => 'Open the link'], true];
+    return [$label[$lang] ?? $label['fr'], $primary];
+}
+
+/**
+ * Habillage HTML d'un e-mail, tiré de son texte brut : paragraphes séparés par une ligne vide, récapitulatif
+ * (lignes « ␣␣Libellé : valeur ») en tableau, lien seul sur sa ligne en bouton (adresse rappelée dessous), dernier
+ * paragraphe « OTSPI — … » en signature. Styles en ligne, sans image ni ressource externe ; thème sombre pris
+ * en charge par les messageries qui le permettent.
+ */
+function mail_html(string $subject, string $body, string $lang): string
+{
+    $navy = '#0f2042';
+    $blocks = preg_split('/\n{2,}/', trim($body)) ?: [];
+    $signature = '';
+    if ($blocks !== [] && str_starts_with(end($blocks), 'OTSPI')) {
+        $signature = array_pop($blocks);
+    }
+    $preheader = '';
+    $content = '';
+    foreach ($blocks as $block) {
+        $lines = explode("\n", $block);
+        if (preg_match('#^https?://\S+$#', $block) === 1) {
+            [$label, $primary] = mail_button($block, $lang);
+            $style = $primary
+                ? "background:#ffcc00;color:$navy;border:2px solid #ffcc00"
+                : "background:transparent;color:#003399;border:2px solid #003399";
+            $content .= '<table role="presentation" cellspacing="0" cellpadding="0" style="margin:4px 0 22px"><tr><td class="btn-cell" style="border-radius:8px">'
+                . '<a class="' . ($primary ? 'btn' : 'btn-alt') . '" href="' . h($block) . '" style="display:inline-block;padding:13px 22px;border-radius:8px;font-weight:700;font-size:16px;text-decoration:none;' . $style . '">' . h($label) . '</a>'
+                . '</td></tr></table>'
+                . '<p class="muted" style="margin:-12px 0 22px;font-size:12px;line-height:1.5;color:#64748b;word-break:break-all">'
+                . ($lang === 'en' ? 'Or copy this address: ' : 'Ou copiez cette adresse : ') . h($block) . '</p>';
+            continue;
+        }
+        if (count(array_filter($lines, static fn (string $l): bool => preg_match('/^  \S/', $l) === 1)) === count($lines)) {
+            $rows = '';
+            foreach ($lines as $line) {
+                $parts = preg_split('/\s?: /u', trim($line), 2);
+                $rows .= '<tr><td class="muted" style="padding:7px 12px 7px 0;color:#475569;font-size:14px;vertical-align:top;white-space:nowrap">' . h($parts[0]) . '</td>'
+                    . '<td class="strong" style="padding:7px 0;color:#0f172a;font-size:15px;font-weight:600">' . h($parts[1] ?? '') . '</td></tr>';
+            }
+            $content .= '<table role="presentation" class="recap" cellspacing="0" cellpadding="0" style="width:100%;margin:0 0 22px;padding:12px 16px;border:1px solid #dbe2ee;border-radius:10px;background:#f8fafd">' . $rows . '</table>';
+            continue;
+        }
+        $text = implode('<br>', array_map('h', $lines));
+        if ($preheader === '' && !preg_match('/^(Bonjour|Hello),?$/', $block)) {
+            $preheader = mb_substr(str_replace("\n", ' ', $block), 0, 140);
+        }
+        $content .= '<p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#0f172a" class="text">' . $text . '</p>';
+    }
+    $footer = $signature !== ''
+        ? h(str_replace(' — ', ' · ', $signature))
+        : 'OTSPI · contact@otspi.org';
+    return '<!doctype html><html lang="' . h($lang) . '"><head><meta charset="utf-8">'
+        . '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        . '<meta name="color-scheme" content="light dark"><meta name="supported-color-schemes" content="light dark">'
+        . '<title>' . h($subject) . '</title>'
+        . '<style>@media (prefers-color-scheme: dark){'
+        . '.bg{background:#0b1222!important}.card{background:#14203a!important;border-color:#25324f!important}'
+        . '.text,.strong{color:#e6ebf5!important}.muted{color:#a5b1c8!important}'
+        . '.recap{background:#101a30!important;border-color:#25324f!important}'
+        . '.btn-alt{color:#7ea2ff!important;border-color:#7ea2ff!important}.foot{color:#a5b1c8!important}}'
+        . '@media (max-width:600px){.card{padding:24px 20px!important}}</style></head>'
+        . '<body class="bg" style="margin:0;padding:0;background:#f5f7fb">'
+        . '<div style="display:none;max-height:0;overflow:hidden;opacity:0">' . h($preheader) . '</div>'
+        . '<table role="presentation" class="bg" width="100%" cellspacing="0" cellpadding="0" style="background:#f5f7fb"><tr><td align="center" style="padding:24px 12px">'
+        . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;font-family:system-ui,-apple-system,\'Segoe UI\',Roboto,\'Helvetica Neue\',Arial,sans-serif">'
+        . '<tr><td style="background:' . $navy . ';border-radius:12px 12px 0 0;border-bottom:4px solid #ffcc00;padding:18px 28px">'
+        . '<span style="font-size:22px;font-weight:800;letter-spacing:.06em;color:#ffffff">OTSPI</span>'
+        . '<span style="display:block;margin-top:2px;font-size:12px;color:#c9d6ff">' . ($lang === 'en' ? 'Manifesto for a free and open digital identity' : 'Manifeste pour une identité numérique libre et ouverte') . '</span></td></tr>'
+        . '<tr><td class="card" style="background:#ffffff;border:1px solid #dbe2ee;border-top:0;border-radius:0 0 12px 12px;padding:32px 28px 14px">'
+        . '<h1 class="text" style="margin:0 0 20px;font-size:21px;line-height:1.35;color:' . $navy . '">' . h($subject) . '</h1>'
+        . $content . '</td></tr>'
+        . '<tr><td class="foot" align="center" style="padding:18px 12px;font-size:12px;line-height:1.6;color:#64748b">' . $footer
+        . '<br><a href="https://www.otspi.org/" style="color:#64748b">www.otspi.org</a></td></tr>'
+        . '</table></td></tr></table></body></html>';
 }
 
 /** E-mail de double consentement : récapitulatif et lien de confirmation, dans la langue de la demande. */
 function send_confirmation(array $signature, string $token, string $lang): bool
 {
     return send_mail($signature['email'], t('mail_confirm_subject', $lang), sprintf(t('mail_confirm_body', $lang),
-        recap_text($signature, $lang), url('confirm.php', ['t' => $token, 'lang' => $lang])));
+        recap_text($signature, $lang), url('confirm.php', ['t' => $token, 'lang' => $lang])), $lang);
 }
 
 /**

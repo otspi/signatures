@@ -37,7 +37,7 @@ if (preg_match('/^[0-9a-f]{64}$/', $token) === 1) {
             $proof = proof_link($signature + ['confirmed_at' => $now]);
             db()->prepare('UPDATE signatures SET proof_mailed_at = ? WHERE id = ?')->execute([$now, $signature['id']]);
             timestamp_signature((int) $signature['id']);
-            send_mail($signature['email'], t('mail_done_subject', $l), sprintf(t('mail_done_body', $l), url('withdraw.php', ['t' => $withdraw, 'lang' => $l]), $proof));
+            send_mail($signature['email'], t('mail_done_subject', $l), sprintf(t('mail_done_body', $l), url('withdraw.php', ['t' => $withdraw, 'lang' => $l]), $proof), $l);
             if ((int) $signature['publier'] === 1) {
                 // Rien n'est publié avant validation : on prévient la personne qui modère, qui se connecte à
                 // l'administration avec sa clé de sécurité (la ligne de commande bin/moderation.php reste possible).
