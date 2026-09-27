@@ -33,7 +33,7 @@ Mesure d'audience : seuls le formulaire (`index.php`) et la page « signature co
 ## Surveillance et données personnelles dans la durée
 
 - **État de santé** : `public/sante.php` renvoie en JSON, sans donnée personnelle, l'état de la base, de la tâche quotidienne, de la dernière sauvegarde, du registre horodaté, de l'horodatage des signatures et de l'autorité d'horodatage (interrogée au plus toutes les 5 minutes) ; HTTP 200 si tout va bien, 503 sinon. Un contrôle jamais encore exécuté est « en attente ».
-- **Surveillance externe** : `.github/workflows/surveillance.yml` lit cette page toutes les 30 minutes (trois essais) ; en cas d'alerte, le job échoue et GitHub prévient par e-mail la personne qui a activé le workflow planifié.
+- **Surveillance externe** : `.github/workflows/surveillance.yml` lit cette page toutes les 30 minutes, à l'adresse `/sante` (réécrite par `.htaccess` : depuis les datacenters, le pare-feu d'o2switch coupe toute requête vers une adresse en `.php`, ce qui explique aussi les anciens échecs sur `signataires.php` depuis GitHub Actions) (trois essais) ; en cas d'alerte, le job échoue et GitHub prévient par e-mail la personne qui a activé le workflow planifié.
 - **Durée de conservation** : `campagne_fin` (`config.php`, AAAA-MM-JJ) déclenche la suppression de toutes les signatures deux ans après, comme l'annonce le texte d'information, avec un avis à l'adresse `contact` 30 et 7 jours avant.
 - **Droit d'accès** : la page de retrait propose de télécharger, en JSON, toutes les données enregistrées sur la personne avant de décider.
 

@@ -2,6 +2,9 @@ Options -Indexes
 RewriteEngine On
 RewriteCond %{HTTPS} !=on
 RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+# État de santé sans extension : le pare-feu d'o2switch coupe, depuis les datacenters (surveillance externe),
+# les requêtes vers une adresse en .php.
+RewriteRule ^sante$ sante.php [L]
 DirectoryIndex index.php
 ErrorDocument 404 /404.php
 ErrorDocument 403 /404.php

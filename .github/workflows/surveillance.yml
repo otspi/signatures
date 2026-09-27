@@ -1,6 +1,6 @@
 name: Surveillance de l'application
 
-# Toutes les 30 minutes, lit l'état de santé de l'application (public/sante.php : base, tâche quotidienne,
+# Toutes les 30 minutes, lit l'état de santé de l'application (/sante, soit public/sante.php : base, tâche quotidienne,
 # sauvegarde, registre horodaté, horodatage, autorité d'horodatage). En cas d'alerte ou d'absence de réponse
 # après trois essais, le job échoue : GitHub prévient par e-mail la personne qui a activé le workflow planifié.
 on:
@@ -19,9 +19,12 @@ jobs:
       - name: État de santé
         run: |
           set -u
-          url="https://manifesto-sign.otspi.org/sante.php"
+          url="https://manifesto-sign.otspi.org/sante"
           for essai in 1 2 3; do
-            code=$(curl -sS -m 25 -o sante.json -w '%{http_code}' "$url" || echo 000)
+            # Adresse sans « .php » : depuis les adresses de datacenter (runners GitHub), le pare-feu d'o2switch
+            # coupe toute requête vers une URL en .php (règle anti-scan) ; /sante est réécrit vers sante.php.
+            # HTTP/1.1 et nouvelles tentatives contre les flux HTTP/2 parfois interrompus (curl 92).
+            code=$(curl -sS --http1.1 --retry 2 --retry-all-errors -m 25 -o sante.json -w '%{http_code}' "$url" || true)
             if [ "$code" = 200 ]; then
               cat sante.json
               exit 0
