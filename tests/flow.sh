@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Test de bout en bout en local : migration, inscription, confirmation, modération, liste publique, retrait, anti-abus.
+# Test de bout en bout en local : migration, inscription, confirmation, modération, administration par clé de
+# sécurité (clé virtuelle tests/authenticator.php), liste publique, retrait, anti-abus.
 # Prérequis : Docker. Usage : bash tests/flow.sh
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -39,32 +40,82 @@ grep -q 'SUBJECT: Signature à modérer : Ada Lovelace' "$WORK/data/mail.log" &&
 curl -s "$U/signataires.php" | grep -q Lovelace && ko "publiée avant modération" || ok "non publiée avant modération"
 curl -s "$U/signataires.php" | grep -q '"total": 3' && ko "comptée avant modération" || ok "non comptée avant modération"
 docker exec "$CID" php /app/bin/moderation.php lister | grep -q 'Ada Lovelace' && ok "modération en ligne de commande : liste" || ko "liste de modération"
-MOD=$(grep -o 'moderation.php?id=[0-9]*&t=[0-9a-f]*' "$WORK/data/mail.log" | head -1)
-MID=$(echo "$MOD" | sed 's/.*id=\([0-9]*\).*/\1/'); MT=$(echo "$MOD" | sed 's/.*t=//')
-curl -s "$U/$MOD" | grep -q '<dd>Lovelace</dd>' && ok "lien de modération : récapitulatif" || ko "page de modération"
-[ "$(curl -s -o /dev/null -w '%{http_code}' "$U/moderation.php?id=$MID&t=$(printf '0%.0s' $(seq 64))")" = 400 ] && ok "lien de modération falsifié refusé" || ko "jeton de modération"
-curl -s -H 'Sec-Fetch-Site: cross-site' -d "id=$MID&t=$MT&a=valider" "$U/moderation.php" | grep -q 'Action refusée' && ok "modération intersite : refus affiché" || ko "refus non affiché"
-curl -s "$U/signataires.php" | grep -q Lovelace && ko "modération depuis un autre site" || ok "modération depuis un autre site refusée"
-curl -s -H 'Sec-Fetch-Site: same-origin' -d "id=$MID&t=$MT&a=valider" "$U/moderation.php" | grep -q 'Signature validée' && ok "validation par le lien de modération" || ko "validation"
+grep -F -A8 'SUBJECT: Signature à modérer' "$WORK/data/mail.log" | grep -q "$U/admin.php?f=attente" && ok "notification : lien vers l'administration" || ko "lien de la notification"
+[ "$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "$U/moderation.php?id=1&t=abc")" = "303 $U/admin.php?f=attente" ] && ok "ancien lien de modération redirigé vers l'administration" || ko "redirection moderation.php"
+# Administration : connexion uniquement par clé de sécurité (clé virtuelle tests/authenticator.php)
+AUTH() { docker exec -i "$CID" php /app/tests/authenticator.php "$@"; }
+J="$WORK/jar"; J2="$WORK/jar2"
+A() { curl -s -b "$J2" -H 'Sec-Fetch-Site: same-origin' "$@"; }
+curl -s "$U/admin.php" | grep -q 'Envoyer le lien d’enregistrement' && ok "aucune clé : lien d'enregistrement proposé" || ko "page sans clé"
+curl -s "$U/admin.php?f=attente" | grep -q 'Se déconnecter' && ko "administration sans clé !" || ok "administration fermée sans clé"
+curl -s -D - -o /dev/null "$U/admin.php" | grep -qi "content-security-policy: default-src 'none'.*script-src 'self';" && ok "CSP : seul le script du site" || ko "CSP admin"
+curl -s -o /dev/null -H 'Sec-Fetch-Site: same-origin' -d "a=invitation" "$U/admin.php"
+INV=$(grep -o 'admin.php?inv=[A-Za-z0-9_-]*' "$WORK/data/mail.log" | tail -1); IT=${INV#*inv=}
+grep -F -B8 "$INV" "$WORK/data/mail.log" | grep -q 'TO: contact@otspi.org' && ok "lien d'enregistrement envoyé à la seule adresse de contact" || ko "destinataire de l'invitation"
+[ "$(curl -s -o /dev/null -w '%{http_code}' "$U/admin.php?inv=$(printf 'A%.0s' $(seq 43))")" = 403 ] && ok "lien d'enregistrement falsifié refusé" || ko "invitation falsifiée"
+REG=$(curl -s "$U/$INV" | AUTH create /work/key.json sans-pin)
+curl -s -H 'Sec-Fetch-Site: same-origin' --data-urlencode "reponse=$REG" -d "a=enregistrer&inv=$IT&nom=YubiKey" "$U/admin.php" | grep -q 'n’a pas pu être enregistrée' && ok "clé sans code PIN refusée à l'enregistrement" || ko "clé sans PIN"
+REG=$(curl -s "$U/$INV" | AUTH create /work/key.json origine)
+curl -s -H 'Sec-Fetch-Site: same-origin' --data-urlencode "reponse=$REG" -d "a=enregistrer&inv=$IT&nom=YubiKey" "$U/admin.php" | grep -q 'n’a pas pu être enregistrée' && ok "enregistrement depuis une autre origine refusé" || ko "origine à l'enregistrement"
+REG=$(curl -s "$U/$INV" | AUTH create /work/key.json)
+R=$(curl -s -c "$J" -o /dev/null -w '%{http_code}' -H 'Sec-Fetch-Site: same-origin' --data-urlencode "reponse=$REG" -d "a=enregistrer&inv=$IT&nom=YubiKey" "$U/admin.php")
+[ "$R" = 303 ] && ok "clé enregistrée par le lien d'invitation" || ko "enregistrement ($R)"
+grep -q '^#HttpOnly_localhost.*otspi-admin' "$J" && ok "cookie de session HttpOnly" || ko "cookie de session"
+grep -q 'SUBJECT: Nouvelle clé de sécurité' "$WORK/data/mail.log" && ok "alerte à l'enregistrement d'une clé" || ko "alerte clé"
+curl -s -b "$J" "$U/admin.php?vue=cles" | grep -q 'session en cours' && ok "session ouverte après l'enregistrement" || ko "session après enregistrement"
+[ "$(curl -s -o /dev/null -w '%{http_code}' "$U/$INV")" = 403 ] && ok "lien d'enregistrement à usage unique" || ko "invitation réutilisable"
+curl -s -o /dev/null -H 'Sec-Fetch-Site: same-origin' -d "a=invitation" "$U/admin.php"
+[ "$(grep -c 'admin.php?inv=' "$WORK/data/mail.log")" = 1 ] && ok "plus d'invitation depuis le web une fois une clé enregistrée" || ko "invitation après clé"
+for F in sans-pin signature origine; do
+  LOGIN=$(curl -s "$U/admin.php" | AUTH get /work/key.json $F)
+  curl -s -H 'Sec-Fetch-Site: same-origin' --data-urlencode "reponse=$LOGIN" -d "a=connexion" "$U/admin.php" | grep -q 'Connexion refusée' && ok "connexion refusée : $F" || ko "connexion $F"
+done
+LOGIN=$(curl -s "$U/admin.php" | AUTH get /work/key.json)
+R=$(curl -s -c "$J2" -o /dev/null -w '%{http_code}' -H 'Sec-Fetch-Site: same-origin' --data-urlencode "reponse=$LOGIN" -d "a=connexion" "$U/admin.php")
+[ "$R" = 303 ] && grep -q 'otspi-admin' "$J2" && ok "connexion avec la clé et son code PIN" || ko "connexion ($R)"
+curl -s -H 'Sec-Fetch-Site: same-origin' --data-urlencode "reponse=$LOGIN" -d "a=connexion" "$U/admin.php" | grep -q 'Connexion refusée' && ok "réponse de connexion rejouée refusée" || ko "rejeu"
+LOGIN=$(curl -s "$U/admin.php" | AUTH get /work/key.json compteur)
+curl -s -H 'Sec-Fetch-Site: same-origin' --data-urlencode "reponse=$LOGIN" -d "a=connexion" "$U/admin.php" | grep -q 'Connexion refusée' && ok "compteur de signatures en recul refusé" || ko "compteur"
+curl -s -b 'otspi-admin=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' "$U/admin.php?f=attente" | grep -q 'Se déconnecter' && ko "cookie de session falsifié accepté !" || ok "cookie de session falsifié refusé"
+MID=$(docker exec "$CID" php -r 'require "/app/src/lib.php"; echo db()->query("SELECT id FROM signatures WHERE email = \"ada@example.org\"")->fetchColumn();')
+A "$U/admin.php?f=attente" | grep -q '<strong>Ada Lovelace</strong>' && ok "administration : signature à modérer" || ko "liste à modérer"
+curl -s -b "$J2" -H 'Sec-Fetch-Site: cross-site' -d "a=valider&id=$MID" "$U/admin.php" | grep -q 'Action refusée' && ok "modération intersite : refus affiché" || ko "refus intersite non affiché"
+curl -s -H 'Sec-Fetch-Site: same-origin' -d "a=valider&id=$MID" "$U/admin.php" | grep -q 'Session expirée' && ok "action sans session refusée" || ko "action sans session"
+curl -s "$U/signataires.php" | grep -q Lovelace && ko "modération sans session ou depuis un autre site" || ok "rien de publié sans session valide"
+R=$(A -o /dev/null -w '%{http_code} %{redirect_url}' -d "a=valider&id=$MID&f=attente" "$U/admin.php")
+echo "$R" | grep -q '^303 .*fait=valider' && ok "validation depuis l'administration" || ko "validation ($R)"
 curl -s "$U/signataires.php" | grep -q Lovelace && ok "publiée après validation" || ko "absente de la liste"
 curl -s "$U/signataires.php" | grep -q 'ada@example.org' && ko "e-mail publié !" || ok "adresse e-mail jamais publiée"
-# Administration : lien magique vers l'adresse de contact, actions en POST, suppression confirmée
-curl -s "$U/admin.php" | grep -q 'Recevoir un lien' && ok "administration : demande de lien" || ko "page d'accès admin"
-curl -s "$U/admin.php" | grep -q 'admin-table' && ko "administration sans accès !" || ok "administration fermée sans lien"
-curl -s -o /dev/null -H 'Sec-Fetch-Site: same-origin' -d "a=lien" "$U/admin.php"
-ADM=$(grep -o 'admin.php?exp=[0-9]*&t=[0-9a-f]*' "$WORK/data/mail.log" | tail -1)
-grep -F -B6 "$ADM" "$WORK/data/mail.log" | grep -q 'TO: contact@otspi.org' && ok "lien d'accès envoyé à la seule adresse de contact" || ko "destinataire du lien admin"
-AEXP=$(echo "$ADM" | sed 's/.*exp=\([0-9]*\).*/\1/'); AT=$(echo "$ADM" | sed 's/.*t=//')
-curl -s "$U/$ADM&f=publiees" | grep -q 'Lovelace' && ok "administration : liste des publiées" || ko "liste admin"
-[ "$(curl -s -o /dev/null -w '%{http_code}' "$U/admin.php?exp=$AEXP&t=$(printf '0%.0s' $(seq 64))")" = 403 ] && ok "lien d'accès falsifié refusé" || ko "jeton admin"
-[ "$(curl -s -o /dev/null -w '%{http_code}' "$U/admin.php?exp=$((AEXP - 3600))&t=$AT")" = 403 ] && ok "lien d'accès expiré refusé" || ko "expiration admin"
+A "$U/admin.php?f=publiees" | grep -q 'Lovelace' && ok "administration : liste des publiées" || ko "liste admin"
 HID=$(docker exec "$CID" php -r 'require "/app/src/lib.php"; echo db()->query("SELECT id FROM signatures WHERE email = \"old+bis@example.org\"")->fetchColumn();')
-[ "$(curl -s -H 'Sec-Fetch-Site: same-origin' -d "exp=$AEXP&t=$AT&a=supprimer&id=$HID" "$U/admin.php" | grep -c 'Supprimer définitivement')" = 1 ] && ok "suppression : confirmation demandée" || ko "confirmation de suppression"
+[ "$(A -d "a=supprimer&id=$HID" "$U/admin.php" | grep -c 'Supprimer définitivement')" = 1 ] && ok "suppression : confirmation demandée" || ko "confirmation de suppression"
 [ "$(curl -s "$U/signataires.php" | grep -c Hopper)" = 2 ] && ok "rien supprimé sans confirmation" || ko "supprimé sans confirmation"
-curl -s -o /dev/null -H 'Sec-Fetch-Site: cross-site' -d "exp=$AEXP&t=$AT&a=supprimer&id=$HID&ok=1" "$U/admin.php"
+curl -s -o /dev/null -b "$J2" -H 'Sec-Fetch-Site: cross-site' -d "a=supprimer&id=$HID&ok=1" "$U/admin.php"
 [ "$(curl -s "$U/signataires.php" | grep -c Hopper)" = 2 ] && ok "action d'administration intersite refusée" || ko "admin intersite"
-R=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' -H 'Sec-Fetch-Site: same-origin' -d "exp=$AEXP&t=$AT&a=supprimer&id=$HID&ok=1&f=publiees" "$U/admin.php")
+R=$(A -o /dev/null -w '%{http_code} %{redirect_url}' -d "a=supprimer&id=$HID&ok=1&f=publiees" "$U/admin.php")
 echo "$R" | grep -q '^303 .*fait=supprimer' && [ "$(curl -s "$U/signataires.php" | grep -c Hopper)" = 1 ] && ok "suppression confirmée (doublon retiré)" || ko "suppression admin ($R)"
+# Gestion des clés : ajout depuis la session, révocation, dernière clé protégée
+REG=$(A "$U/admin.php?vue=cles" | AUTH create /work/key2.json)
+R=$(A -o /dev/null -w '%{http_code} %{redirect_url}' --data-urlencode "reponse=$REG" -d "a=ajouter-cle&vue=cles&nom=Secours" "$U/admin.php")
+echo "$R" | grep -q '^303 .*fait=cle' && [ "$(docker exec "$CID" php /app/bin/admin.php cles | grep -c '^#')" = 2 ] && ok "seconde clé ajoutée depuis la session" || ko "ajout de clé ($R)"
+REG=$(curl -s -b "$J" "$U/admin.php?vue=cles" | AUTH create /work/key3.json)
+A -o /dev/null --data-urlencode "reponse=$REG" -d "a=ajouter-cle&vue=cles&nom=Autre" "$U/admin.php"
+[ "$(docker exec "$CID" php /app/bin/admin.php cles | grep -c '^#')" = 2 ] && ok "défi d'enregistrement lié à sa session" || ko "défi d'une autre session accepté"
+K1=$(docker exec "$CID" php /app/bin/admin.php cles | sed -n '1s/^#\([0-9]*\).*/\1/p'); K2=$(docker exec "$CID" php /app/bin/admin.php cles | sed -n '2s/^#\([0-9]*\).*/\1/p')
+# Connexion avec la clé de secours (J2 porte désormais sa session), puis révocation de la première clé.
+cp "$J2" "$J"
+LOGIN=$(curl -s "$U/admin.php" | AUTH get /work/key2.json)
+curl -s -c "$J2" -o /dev/null -H 'Sec-Fetch-Site: same-origin' --data-urlencode "reponse=$LOGIN" -d "a=connexion" "$U/admin.php"
+A "$U/admin.php?f=attente" | grep -q 'Se déconnecter' && ok "connexion avec la clé de secours" || ko "connexion clé de secours"
+A -o /dev/null -d "a=revoquer&id=$K1&vue=cles" "$U/admin.php"
+curl -s -b "$J" "$U/admin.php?f=attente" | grep -q 'Se déconnecter' && ko "session d'une clé révoquée encore ouverte" || ok "révocation : sessions de la clé fermées"
+LOGIN=$(curl -s "$U/admin.php" | AUTH get /work/key.json)
+curl -s -H 'Sec-Fetch-Site: same-origin' --data-urlencode "reponse=$LOGIN" -d "a=connexion" "$U/admin.php" | grep -q 'Connexion refusée' && ok "clé révoquée refusée" || ko "clé révoquée acceptée"
+A -o /dev/null -w '%{redirect_url}' -d "a=revoquer&id=$K2&vue=cles" "$U/admin.php" | grep -q 'fait=derniere' && ok "la dernière clé ne peut pas être révoquée" || ko "dernière clé révoquée"
+A -o /dev/null -d "a=deconnexion" "$U/admin.php"
+A "$U/admin.php?f=attente" | grep -q 'Se déconnecter' && ko "session encore ouverte après déconnexion" || ok "déconnexion"
+LOGIN=$(curl -s "$U/admin.php" | AUTH get /work/key2.json)
+curl -s -c "$J2" -o /dev/null -H 'Sec-Fetch-Site: same-origin' --data-urlencode "reponse=$LOGIN" -d "a=connexion" "$U/admin.php"
 FT=$(ft); sleep 5
 curl -s -o /dev/null -d "ft=$FT&prenom=Ada&nom=Lovelace&email=Ada%2Bbis@example.org" "$U/"
 grep -q 'TO: ada+bis@example.org' "$WORK/data/mail.log" && ko "doublon par alias +tag" || ok "alias +tag d'une adresse déjà signée : aucun nouvel envoi"
@@ -96,4 +147,15 @@ docker exec "$CID" php -r 'require "/app/src/lib.php";
 $_SERVER["REMOTE_ADDR"] = "2001:db8:1:2::1"; $a = ip_hash(); $_SERVER["REMOTE_ADDR"] = "2001:db8:1:2:ffff::9"; $b = ip_hash();
 $_SERVER["REMOTE_ADDR"] = "::ffff:192.0.2.1"; $c = ip_hash(); $_SERVER["REMOTE_ADDR"] = "::ffff:192.0.2.2"; $d = ip_hash();
 echo $a === $b && $c !== $d ? "ok" : "ko";' | grep -q ok && ok "limite IPv6 par /64, IPv4 mappées entières" || ko "empreinte IP"
+# Demandes non confirmées : renvoi du lien (au plus toutes les 10 minutes) et suppression
+TID=$(docker exec "$CID" php -r 'require "/app/src/lib.php"; echo db()->query("SELECT id FROM signatures WHERE email = \"alan+manifeste@example.org\"")->fetchColumn();')
+A "$U/admin.php?f=non-confirmees" | grep -q 'Alan Turing' && ok "administration : demandes en attente de confirmation" || ko "liste non confirmées"
+A -o /dev/null -w '%{redirect_url}' -d "a=renvoyer&id=$TID&f=non-confirmees" "$U/admin.php" | grep -q 'fait=trop-tot' && ok "renvoi refusé moins de 10 minutes après un envoi" || ko "renvoi trop rapproché"
+docker exec "$CID" php -r 'require "/app/src/lib.php"; db()->exec("UPDATE signatures SET last_mail_at = last_mail_at - 900");'
+A -o /dev/null -w '%{redirect_url}' -d "a=renvoyer&id=$TID&f=non-confirmees" "$U/admin.php" | grep -q 'fait=renvoyer' && [ "$(grep -c 'TO: alan+manifeste@example.org' "$WORK/data/mail.log")" = 2 ] && ok "lien de confirmation renvoyé" || ko "renvoi du lien"
+C=$(grep -o 'confirm.php?t=[0-9a-f]*' "$WORK/data/mail.log" | tail -1)
+curl -s "$U/$C" | grep -q '<dd>Turing</dd>' && ok "le lien renvoyé ouvre la confirmation" || ko "lien renvoyé"
+A -o /dev/null -w '%{redirect_url}' -d "a=valider&id=$TID&f=non-confirmees" "$U/admin.php" | grep -q 'fait=rien' && ok "une demande non confirmée ne peut pas être validée" || ko "validation sans confirmation"
+A -o /dev/null -d "a=supprimer&id=$TID&ok=1&f=non-confirmees" "$U/admin.php"
+[ "$(curl -s -o /dev/null -w '%{http_code}' "$U/$C")" = 400 ] && ok "demande non confirmée supprimée" || ko "suppression non confirmée"
 echo "Tous les tests passent."

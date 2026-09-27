@@ -4,8 +4,8 @@
 //   php bin/moderation.php lister           signatures confirmées en attente de validation
 //   php bin/moderation.php valider ID...    publie les signatures dans la liste publique
 //   php bin/moderation.php masquer ID...    garde la signature (comptée) sans jamais publier le nom
-//   php bin/moderation.php supprimer ID...  supprime la signature et ses données (usurpation, abus)
-// Les mêmes actions sont accessibles depuis le lien de l'e-mail « Signature à modérer » (public/moderation.php).
+//   php bin/moderation.php supprimer ID...  supprime la signature et ses données (usurpation, abus), confirmée ou non
+// Les mêmes actions sont accessibles dans l'administration (public/admin.php, connexion par clé de sécurité).
 
 declare(strict_types=1);
 if (PHP_SAPI !== 'cli') {
@@ -33,5 +33,5 @@ if (!in_array($command, MODERATION_ACTIONS, true) || $ids === [] || in_array(0, 
     exit(2);
 }
 foreach ($ids as $id) {
-    echo "#{$id} : " . (moderate($id, $command) ? $command . ' — fait' : 'introuvable ou non confirmée') . "\n";
+    echo "#{$id} : " . (moderate($id, $command) ? $command . ' — fait' : ($command === 'supprimer' ? 'introuvable' : 'introuvable ou non confirmée')) . "\n";
 }

@@ -66,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $recap = ['prenom' => $prenom, 'nom' => $nom, 'fonction' => $fonction, 'organisation' => $organisation, 'publier' => $old['publier']];
             if ($sendConfirm) {
-                $sent = send_mail($email, t('mail_confirm_subject', $lang), sprintf(t('mail_confirm_body', $lang), recap_text($recap, $lang), url('confirm.php', ['t' => $token, 'lang' => $lang])));
+                $sent = send_confirmation($recap + ['email' => $email], $token, $lang);
                 if (!$sent) {
                     $error = 'err_mail';
                 }

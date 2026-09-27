@@ -138,6 +138,12 @@ button:hover, a.button:hover { background: #ffd83d; color: #0f2042; }
 
 /* Administration des signatures */
 main.wide { max-width: 72rem; }
+h2 { font-size: 1.2rem; color: var(--accent-strong); margin: 2rem 0 .75rem; }
+code { font-size: .9em; overflow-wrap: anywhere; }
+button:disabled { opacity: .6; cursor: wait; }
+.admin-nav { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1.25rem; margin: 0 0 1rem; font-weight: 600; }
+.admin-nav a[aria-current="page"] { color: var(--text); text-decoration: none; }
+.admin-nav form { margin: 0 0 0 auto; }
 .muted { color: var(--text-muted); }
 .notice {
   padding: .75rem 1rem;
