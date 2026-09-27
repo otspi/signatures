@@ -335,7 +335,7 @@ foreach (FILTERS as $key => [$label, $where]) {
         . h($label) . ' <span class="count">' . $count . '</span></a>';
 }
 
-$rows = $pdo->query('SELECT id, email, prenom, nom, fonction, organisation, publier, lang, created_at, last_mail_at, confirmed_at, approved_at FROM signatures WHERE '
+$rows = $pdo->query('SELECT id, email, prenom, nom, fonction, organisation, publier, lang, created_at, last_mail_at, confirmed_at, approved_at, proof_at FROM signatures WHERE '
     . FILTERS[$filter][1] . ' ORDER BY COALESCE(confirmed_at, created_at) DESC, id DESC LIMIT 500')->fetchAll();
 
 $lines = '';
@@ -356,7 +356,7 @@ foreach ($rows as $row) {
     $actions .= $button((int) $row['id'], 'supprimer', 'Supprimer…', 'danger');
     $dates = 'Demande : ' . when((int) $row['created_at']) . '<br>'
         . ($row['confirmed_at'] !== null
-            ? 'Confirmée : ' . when((int) $row['confirmed_at'])
+            ? 'Confirmée : ' . when((int) $row['confirmed_at']) . '<br>Horodatée : ' . when($row['proof_at'] === null ? null : (int) $row['proof_at'])
             : 'Dernier e-mail : ' . when((int) $row['last_mail_at']) . '<br>Purge : ' . when((int) $row['created_at'] + UNCONFIRMED_TTL));
     $lines .= '<tr><td>' . (int) $row['id'] . '</td>'
         . '<td><strong>' . h(trim($row['prenom'] . ' ' . $row['nom'])) . '</strong>'

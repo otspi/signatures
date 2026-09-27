@@ -98,9 +98,22 @@ CREATE TABLE IF NOT EXISTS admin_tokens (
 );
 SQL);
         migrate($pdo);
+        migrate_proof($pdo);
         $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS signatures_email_key ON signatures (email_key)');
     }
     return $pdo;
+}
+
+/** Colonnes de la preuve horodatée (src/horodatage.php), ajoutées aux bases existantes. */
+function migrate_proof(PDO $pdo): void
+{
+    $existing = $pdo->query('PRAGMA table_info(signatures)')->fetchAll(PDO::FETCH_COLUMN, 1);
+    foreach (['proof_hash' => 'TEXT', 'proof_json' => 'TEXT', 'proof_token' => 'TEXT', 'proof_at' => 'INTEGER', 'proof_mailed_at' => 'INTEGER'] as $column => $type) {
+        if (!in_array($column, $existing, true)) {
+            $pdo->exec("ALTER TABLE signatures ADD COLUMN $column $type");
+        }
+    }
+    $pdo->exec('CREATE INDEX IF NOT EXISTS signatures_proof ON signatures (proof_hash)');
 }
 
 /** Met à niveau les bases créées avant la modération et la clé d'unicité des adresses. */

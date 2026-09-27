@@ -7,14 +7,45 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$(mktemp -d)"; mkdir -p "$WORK/data"
 cat > "$WORK/config.php" <<'PHP'
 <?php
-return ['base_url'=>'http://localhost:8090','db_path'=>'/work/data/s.sqlite','secret'=>'test-secret','mail_from'=>'no-reply@example.org','mail_from_name'=>'OTSPI','contact'=>'contact@otspi.org','mail_dry_run'=>true,'mail_log'=>'/work/data/mail.log','mail_hourly_cap'=>2,'pow_bits'=>8];
+return ['base_url'=>'http://localhost:8090','db_path'=>'/work/data/s.sqlite','secret'=>'test-secret','mail_from'=>'no-reply@example.org','mail_from_name'=>'OTSPI','contact'=>'contact@otspi.org','mail_dry_run'=>true,'mail_log'=>'/work/data/mail.log','mail_hourly_cap'=>2,'pow_bits'=>8,'tsa_url'=>'http://127.0.0.1:8091','tsa_ca'=>'/work/tsa/ca.pem'];
 PHP
 # Base à l'ancien schéma (sans modération) avec une signature confirmée, pour tester la migration
 docker run --rm -v "$WORK":/work php:8.3-cli php -r '$p = new PDO("sqlite:/work/data/s.sqlite");
 $p->exec("CREATE TABLE signatures (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL UNIQUE, prenom TEXT NOT NULL, nom TEXT NOT NULL, fonction TEXT NOT NULL DEFAULT \"\", organisation TEXT NOT NULL DEFAULT \"\", publier INTEGER NOT NULL DEFAULT 0, lang TEXT NOT NULL DEFAULT \"fr\", confirm_hash TEXT NOT NULL, withdraw_hash TEXT NOT NULL, created_at INTEGER NOT NULL, last_mail_at INTEGER NOT NULL, confirmed_at INTEGER)");
 $p->exec("INSERT INTO signatures (email, prenom, nom, publier, confirm_hash, withdraw_hash, created_at, last_mail_at, confirmed_at) VALUES (\"old@example.org\", \"Grace\", \"Hopper\", 1, \"x\", \"y\", 1, 1, 1), (\"old+bis@example.org\", \"Grace\", \"Hopper\", 1, \"z\", \"w\", 1, 1, 1)");'
+# Autorité d'horodatage de test (tests/tsa-mock.php) : CA et unité d'horodatage (usage timeStamping) jetables
+mkdir -p "$WORK/tsa"
+cat > "$WORK/tsa/tsa.cnf" <<'CNF'
+[ tsa ]
+default_tsa = tsa_config1
+[ tsa_config1 ]
+serial = /work/tsa/serial
+crypto_device = builtin
+signer_cert = /work/tsa/tsu.pem
+certs = /work/tsa/ca.pem
+signer_key = /work/tsa/tsu.key
+signer_digest = sha256
+default_policy = 1.2.3.4.1
+digests = sha256
+accuracy = secs:1
+ordering = no
+tsa_name = no
+ess_cert_id_chain = no
+ess_cert_id_alg = sha256
+CNF
+docker run --rm -v "$WORK":/work -w /work/tsa php:8.3-cli sh -c 'echo 01 > serial
+openssl req -x509 -newkey rsa:2048 -nodes -keyout ca.key -out ca.pem -subj "/CN=Test Root" -days 2 2>/dev/null
+openssl req -newkey rsa:2048 -nodes -keyout tsu.key -out tsu.csr -subj "/CN=Test TSU" 2>/dev/null
+printf "extendedKeyUsage=critical,timeStamping\nbasicConstraints=CA:FALSE\n" > ext.cnf
+openssl x509 -req -in tsu.csr -CA ca.pem -CAkey ca.key -CAcreateserial -out tsu.pem -days 2 -extfile ext.cnf 2>/dev/null
+chmod -R a+rwX /work/tsa'
+cat > "$WORK/config-staging.php" <<'PHP'
+<?php
+return ['base_url'=>'http://localhost:8090','db_path'=>'/work/data/s.sqlite','secret'=>'test-secret','mail_from'=>'no-reply@example.org','mail_from_name'=>'OTSPI','contact'=>'contact@otspi.org','mail_dry_run'=>true,'mail_log'=>'/work/data/mail.log'];
+PHP
 CID=$(docker run -d --rm -p 8090:8090 -v "$ROOT":/app -v "$WORK":/work -e SIGN_CONFIG=/work/config.php -w /app/public php:8.3-cli php -S 0.0.0.0:8090)
 trap 'docker stop "$CID" >/dev/null; rm -rf "$WORK"' EXIT
+docker exec -d "$CID" php -S 127.0.0.1:8091 /app/tests/tsa-mock.php
 sleep 3
 U=http://localhost:8090
 ok() { echo "OK  $1"; }; ko() { echo "ÉCHEC $1"; exit 1; }
@@ -37,9 +68,25 @@ curl -s "$U/confirm.php?t=$TOKEN" | grep -q '<dd>Lovelace</dd>' && ok "récapitu
 [ "$(curl -s -o /dev/null -w '%{http_code}' -H 'Sec-Fetch-Site: cross-site' -d "t=$TOKEN" "$U/confirm.php")" = 200 ] && ok "confirmation depuis un autre site refusée" || ko "confirmation intersite"
 [ "$(curl -s "$U/confirm.php?t=$TOKEN" | grep -c 'method="post"')" = 1 ] && ok "le lien seul (GET) ne confirme rien" || ko "confirmé par GET"
 curl -s "$U/confirm.php?t=$TOKEN" | grep -q 'analytics.js' && ko "mesure d'audience sur une page à jeton" || ok "page à jeton non mesurée"
+touch "$WORK/tsa/panne"
 R=$(curl -s -w '\n%{http_code}' -d "t=$TOKEN" "$U/confirm.php?lang=fr")
 [ "$(echo "$R" | tail -1)" = 200 ] && ok "confirmation (POST)" || ko "confirmation"
 echo "$R" | grep -q 'data-track-load="Manifeste|Signature confirmée|fr"' && echo "$R" | grep -q 'analytics.js' && ok "signature confirmée mesurée, sans jeton dans l'adresse" || ko "mesure de la confirmation"
+PROOF=$(grep -o 'preuve.php?t=[0-9a-f]*&lang=fr' "$WORK/data/mail.log" | tail -1)
+[ -n "$PROOF" ] && curl -s "$U/$PROOF" | grep -q 'Horodatage en cours' && ok "autorité injoignable : confirmation non bloquée, preuve en attente" || ko "preuve en attente"
+curl -s "$U/$PROOF" | grep -q 'analytics.js' && ko "mesure d'audience sur la page de preuve" || ok "page de preuve non mesurée"
+rm "$WORK/tsa/panne"
+docker exec "$CID" php /app/bin/horodatage.php | grep -q '^3 signature(s) horodatée(s), 0 échec(s), 2 preuve(s) envoyée(s)' && ok "rattrapage : nouvelle signature et signatures antérieures horodatées" || ko "rattrapage de l'horodatage"
+[ "$(grep -A1 'TO: old' "$WORK/data/mail.log" | grep -c 'est désormais horodatée')" = 2 ] && ! grep -A1 'TO: ada@example.org' "$WORK/data/mail.log" | grep -q 'désormais horodatée' && ok "preuve envoyée aux signatures antérieures, pas en double" || ko "envoi des preuves"
+docker exec "$CID" php /app/bin/horodatage.php | grep -q '^0 signature(s) horodatée(s), 0 échec(s), 0 preuve(s)' && ok "rattrapage idempotent" || ko "second rattrapage"
+curl -s "$U/$PROOF" | grep -q 'Horodatage vérifié' && curl -s "$U/$PROOF" | grep -q '<dd>Lovelace</dd>' && ok "page de preuve : horodatage vérifié" || ko "page de preuve"
+curl -s -o "$WORK/p.json" "$U/$PROOF&f=json"; curl -s -o "$WORK/p.tsr" "$U/$PROOF&f=tsr"
+grep -q '"nom": "Lovelace"' "$WORK/p.json" && ! grep -q '@' "$WORK/p.json" && ok "attestation téléchargeable, sans adresse e-mail" || ko "attestation"
+docker exec "$CID" openssl ts -verify -data /work/p.json -in /work/p.tsr -CAfile /work/tsa/ca.pem 2>/dev/null | grep -q 'Verification: OK' && ok "vérification indépendante (openssl ts -verify)" || ko "openssl ts -verify"
+sed 's/Lovelace/Lovelacf/' "$WORK/p.json" > "$WORK/p2.json"
+docker exec "$CID" openssl ts -verify -data /work/p2.json -in /work/p.tsr -CAfile /work/tsa/ca.pem 2>/dev/null | grep -q 'Verification: OK' && ko "attestation modifiée acceptée" || ok "attestation modifiée d'un caractère : jeton invalide"
+docker exec -e SIGN_CONFIG=/work/config-staging.php "$CID" php -r 'require "/app/src/lib.php"; require "/app/src/horodatage.php"; try { tsa_verify(file_get_contents("/work/p.tsr"), hash("sha256", file_get_contents("/work/p.json"), true)); echo "accepté"; } catch (TimestampInvalid $e) { echo $e->getMessage(); }' | grep -q "autorité épinglée" && ok "jeton d'une autre autorité refusé par la chaîne épinglée du staging" || ko "chaîne épinglée"
+[ "$(curl -s -o /dev/null -w '%{http_code}' "$U/preuve.php?t=$(printf '0%.0s' $(seq 64))")" = 404 ] && ok "lien de preuve falsifié refusé" || ko "preuve falsifiée"
 [ "$(curl -s -o /dev/null -w '%{http_code}' -d "t=$TOKEN" "$U/confirm.php")" = 400 ] && ok "lien de confirmation à usage unique" || ko "réutilisation du lien"
 grep -q 'SUBJECT: Signature à modérer : Ada Lovelace' "$WORK/data/mail.log" && ok "notification de modération" || ko "notification de modération"
 curl -s "$U/signataires.php" | grep -q Lovelace && ko "publiée avant modération" || ok "non publiée avant modération"
@@ -131,6 +178,7 @@ grep -q 'TO: alan+manifeste@example.org' "$WORK/data/mail.log" && ok "adresse +t
 W=$(grep -o 'withdraw.php?t=[0-9a-f]*' "$WORK/data/mail.log" | tail -1 | sed 's/.*t=//')
 curl -s -o /dev/null -d "t=$W" "$U/withdraw.php"
 curl -s "$U/signataires.php" | grep -q Lovelace && ko "retrait sans effet" || ok "retrait et suppression"
+[ "$(curl -s -o /dev/null -w '%{http_code}' "$U/$PROOF")" = 404 ] && ok "retrait : preuve supprimée avec la signature" || ko "preuve après retrait"
 R=$(curl -s -o /dev/null -w '%{http_code}' -d "ft=$(ft)&prenom=Bot&nom=Bot&email=bot@example.org&website=x" "$U/")
 grep -q 'bot@example.org' "$WORK/data/mail.log" && ko "piège à robots" || ok "piège à robots"
 FT=$(ft); sleep 5

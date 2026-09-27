@@ -6,6 +6,7 @@
 
 declare(strict_types=1);
 require __DIR__ . '/../src/lib.php';
+require __DIR__ . '/../src/horodatage.php';
 
 $lang = lang();
 $token = (string) ($_GET['t'] ?? $_POST['t'] ?? '');
@@ -27,10 +28,16 @@ if (preg_match('/^[0-9a-f]{64}$/', $token) === 1) {
         $withdraw = new_token();
         // Condition sur confirmed_at : de deux confirmations simultanées, une seule aboutit.
         $update = $pdo->prepare('UPDATE signatures SET confirmed_at = ?, confirm_hash = ?, withdraw_hash = ? WHERE id = ? AND confirmed_at IS NULL');
-        $update->execute([time(), token_hash(new_token()), token_hash($withdraw), $signature['id']]);
+        $now = time();
+        $update->execute([$now, token_hash(new_token()), token_hash($withdraw), $signature['id']]);
         if ($update->rowCount() === 1) {
             $l = $signature['lang'] === 'en' ? 'en' : 'fr';
-            send_mail($signature['email'], t('mail_done_subject', $l), sprintf(t('mail_done_body', $l), url('withdraw.php', ['t' => $withdraw, 'lang' => $l])));
+            // Preuve : attestation figée puis horodatée ; si l'autorité ne répond pas, le cron réessaie et le lien
+            // affiche « horodatage en cours ». proof_mailed_at évite au cron un second envoi.
+            $proof = proof_link($signature + ['confirmed_at' => $now]);
+            db()->prepare('UPDATE signatures SET proof_mailed_at = ? WHERE id = ?')->execute([$now, $signature['id']]);
+            timestamp_signature((int) $signature['id']);
+            send_mail($signature['email'], t('mail_done_subject', $l), sprintf(t('mail_done_body', $l), url('withdraw.php', ['t' => $withdraw, 'lang' => $l]), $proof));
             if ((int) $signature['publier'] === 1) {
                 // Rien n'est publié avant validation : on prévient la personne qui modère, qui se connecte à
                 // l'administration avec sa clé de sécurité (la ligne de commande bin/moderation.php reste possible).
