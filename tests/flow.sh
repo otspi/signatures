@@ -86,6 +86,7 @@ R=$(A -o /dev/null -w '%{http_code} %{redirect_url}' -d "a=valider&id=$MID&f=att
 echo "$R" | grep -q '^303 .*fait=valider' && ok "validation depuis l'administration" || ko "validation ($R)"
 curl -s "$U/signataires.php" | grep -q Lovelace && ok "publiée après validation" || ko "absente de la liste"
 curl -s "$U/signataires.php" | grep -q 'ada@example.org' && ko "e-mail publié !" || ok "adresse e-mail jamais publiée"
+curl -s -D - -o /dev/null "$U/signataires.php" | grep -qi '^access-control-allow-origin: https://www.otspi.org' && ok "liste lisible depuis www.otspi.org (CORS)" || ko "CORS"
 A "$U/admin.php?f=publiees" | grep -q 'Lovelace' && ok "administration : liste des publiées" || ko "liste admin"
 HID=$(docker exec "$CID" php -r 'require "/app/src/lib.php"; echo db()->query("SELECT id FROM signatures WHERE email = \"old+bis@example.org\"")->fetchColumn();')
 [ "$(A -d "a=supprimer&id=$HID" "$U/admin.php" | grep -c 'Supprimer définitivement')" = 1 ] && ok "suppression : confirmation demandée" || ko "confirmation de suppression"
