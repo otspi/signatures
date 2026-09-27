@@ -36,7 +36,10 @@ curl -s "$U/confirm.php?t=$TOKEN" | grep -q 'method="post"' && ok "le lien affic
 curl -s "$U/confirm.php?t=$TOKEN" | grep -q '<dd>Lovelace</dd>' && ok "récapitulatif sur la page de confirmation" || ko "récapitulatif de la page"
 [ "$(curl -s -o /dev/null -w '%{http_code}' -H 'Sec-Fetch-Site: cross-site' -d "t=$TOKEN" "$U/confirm.php")" = 200 ] && ok "confirmation depuis un autre site refusée" || ko "confirmation intersite"
 [ "$(curl -s "$U/confirm.php?t=$TOKEN" | grep -c 'method="post"')" = 1 ] && ok "le lien seul (GET) ne confirme rien" || ko "confirmé par GET"
-[ "$(curl -s -o /dev/null -w '%{http_code}' -d "t=$TOKEN" "$U/confirm.php")" = 200 ] && ok "confirmation (POST)" || ko "confirmation"
+curl -s "$U/confirm.php?t=$TOKEN" | grep -q 'analytics.js' && ko "mesure d'audience sur une page à jeton" || ok "page à jeton non mesurée"
+R=$(curl -s -w '\n%{http_code}' -d "t=$TOKEN" "$U/confirm.php?lang=fr")
+[ "$(echo "$R" | tail -1)" = 200 ] && ok "confirmation (POST)" || ko "confirmation"
+echo "$R" | grep -q 'data-track-load="Manifeste|Signature confirmée|fr"' && echo "$R" | grep -q 'analytics.js' && ok "signature confirmée mesurée, sans jeton dans l'adresse" || ko "mesure de la confirmation"
 [ "$(curl -s -o /dev/null -w '%{http_code}' -d "t=$TOKEN" "$U/confirm.php")" = 400 ] && ok "lien de confirmation à usage unique" || ko "réutilisation du lien"
 grep -q 'SUBJECT: Signature à modérer : Ada Lovelace' "$WORK/data/mail.log" && ok "notification de modération" || ko "notification de modération"
 curl -s "$U/signataires.php" | grep -q Lovelace && ko "publiée avant modération" || ok "non publiée avant modération"
@@ -88,6 +91,7 @@ R=$(A -o /dev/null -w '%{http_code} %{redirect_url}' -d "a=valider&id=$MID&f=att
 echo "$R" | grep -q '^303 .*fait=valider' && ok "validation depuis l'administration" || ko "validation ($R)"
 curl -s "$U/signataires.php" | grep -q Lovelace && ok "publiée après validation" || ko "absente de la liste"
 curl -s "$U/signataires.php" | grep -q 'ada@example.org' && ko "e-mail publié !" || ok "adresse e-mail jamais publiée"
+curl -s -D - -o /dev/null "$U/signataires.php" | grep -qi '^access-control-allow-origin: https://www.otspi.org' && ok "liste lisible depuis www.otspi.org (CORS)" || ko "CORS"
 A "$U/admin.php?f=publiees" | grep -q 'Lovelace' && ok "administration : liste des publiées" || ko "liste admin"
 HID=$(docker exec "$CID" php -r 'require "/app/src/lib.php"; echo db()->query("SELECT id FROM signatures WHERE email = \"old+bis@example.org\"")->fetchColumn();')
 [ "$(A -d "a=supprimer&id=$HID" "$U/admin.php" | grep -c 'Supprimer définitivement')" = 1 ] && ok "suppression : confirmation demandée" || ko "confirmation de suppression"
