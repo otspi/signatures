@@ -4,15 +4,15 @@
 // publication et validées par modération (bin/moderation.php). Aucune adresse e-mail. Le total compte
 // aussi les signatures non publiées, mais pas celles qui attendent la modération. Format JSON, consommé par le script de génération du site
 // et, en direct, par la page du manifeste de www.otspi.org (seule origine autorisée à le lire depuis un navigateur).
+// Son empreinte SHA-256 est inscrite chaque jour dans le registre horodaté (src/registre.php, public/registre.php).
 
 declare(strict_types=1);
 require __DIR__ . '/../src/lib.php';
-
-$rows = db()->query('SELECT prenom, nom, fonction, organisation FROM signatures WHERE confirmed_at IS NOT NULL AND publier = 1 AND approved_at IS NOT NULL ORDER BY confirmed_at, id')->fetchAll();
-$total = (int) db()->query('SELECT COUNT(*) FROM signatures WHERE confirmed_at IS NOT NULL AND (publier = 0 OR approved_at IS NOT NULL)')->fetchColumn();
+require __DIR__ . '/../src/horodatage.php';
+require __DIR__ . '/../src/registre.php';
 
 header('Content-Type: application/json; charset=UTF-8');
 header('Cache-Control: public, max-age=300');
 header('Access-Control-Allow-Origin: https://www.otspi.org');
 header('X-Content-Type-Options: nosniff');
-echo json_encode(['total' => $total, 'signataires' => $rows], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+echo public_list_json();

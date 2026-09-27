@@ -20,6 +20,10 @@ return [
     // staging d'OTSPI et src/tsa-staging-ca.pem. 'tsa_url' => '' désactive l'horodatage.
     // 'tsa_url' => 'https://api.staging.open-eidas.eu',
     // 'tsa_ca' => __DIR__ . '/src/tsa-staging-ca.pem',
+    // Sauvegarde quotidienne chiffrée : destinataire (à défaut contact) et certificat de chiffrement (par défaut
+    // src/sauvegarde-certificat.pem ; la clé privée correspondante reste hors du serveur).
+    // 'backup_to' => 'contact@otspi.org',
+    // 'backup_certificate' => __DIR__ . '/src/sauvegarde-certificat.pem',
     // Pour les essais : ne pas envoyer, journaliser dans mail_log.
     'mail_dry_run' => false,
     'mail_log' => __DIR__ . '/data/mail.log',

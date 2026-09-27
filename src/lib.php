@@ -74,6 +74,13 @@ CREATE TABLE IF NOT EXISTS hits (
     at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS hits_ip ON hits (ip_hash, at);
+CREATE TABLE IF NOT EXISTS registre (
+    numero INTEGER PRIMARY KEY,
+    jour TEXT NOT NULL UNIQUE,
+    entree TEXT NOT NULL,
+    jeton TEXT,
+    horodate_le INTEGER
+);
 CREATE TABLE IF NOT EXISTS form_tokens (
     hash TEXT PRIMARY KEY,
     at INTEGER NOT NULL
@@ -385,8 +392,9 @@ function valid_email(string $email): bool
 /**
  * Envoie un e-mail en deux versions (multipart/alternative) : le texte brut, rédigé dans src/texts.php, et un
  * habillage HTML qui en est tiré automatiquement (mail_html). $lang choisit les libellés des boutons.
+ * $attachments : pièces jointes [nom de fichier => contenu] (multipart/mixed).
  */
-function send_mail(string $to, string $subject, string $body, string $lang = 'fr'): bool
+function send_mail(string $to, string $subject, string $body, string $lang = 'fr', array $attachments = []): bool
 {
     $from = config()['mail_from'];
     $boundary = 'otspi-' . bin2hex(random_bytes(12));
@@ -405,12 +413,30 @@ function send_mail(string $to, string $subject, string $body, string $lang = 'fr
         . quoted_printable_encode(str_replace("\n", "\r\n", $body)) . "\r\n"
         . "--$boundary\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n"
         . quoted_printable_encode($html) . "\r\n--$boundary--\r\n";
+    if ($attachments !== []) {
+        $mixed = 'otspi-' . bin2hex(random_bytes(12));
+        $parts = "--$mixed\r\nContent-Type: multipart/alternative; boundary=\"$boundary\"\r\n\r\n" . $message;
+        foreach ($attachments as $name => $content) {
+            $parts .= "--$mixed\r\nContent-Type: application/octet-stream; name=\"$name\"\r\nContent-Transfer-Encoding: base64\r\n"
+                . "Content-Disposition: attachment; filename=\"$name\"\r\n\r\n" . chunk_split(base64_encode($content), 76, "\r\n");
+        }
+        $message = $parts . "--$mixed--\r\n";
+        $headers[3] = 'Content-Type: multipart/mixed; boundary="' . $mixed . '"';
+    }
     $encodedSubject = '=?UTF-8?B?' . base64_encode($subject) . '?=';
     if (config()['mail_dry_run'] ?? false) {
         $log = config()['mail_log'] ?? '/dev/null';
         file_put_contents($log, "TO: $to\nSUBJECT: $subject\n\n$body\n---\n", FILE_APPEND);
         if ($log !== '/dev/null') {
             file_put_contents($log . '.html', "<!-- TO: $to -->\n$html\n", FILE_APPEND);
+            foreach ($attachments as $name => $content) {
+                // Mode essai uniquement : pièces jointes déposées à côté du journal, lisibles par les tests.
+                $dir = dirname($log) . '/pieces-jointes';
+                if (!is_dir($dir) && @mkdir($dir)) {
+                    @chmod($dir, 0777);
+                }
+                file_put_contents($dir . '/' . basename((string) $name), $content);
+            }
         }
         return true;
     }
@@ -595,6 +621,7 @@ function page(string $title, string $body, string $lang, bool $wide = false, boo
         . '<footer class="site-footer"><div class="inner">'
         . '<a href="' . h(t('manifesto_url', $lang)) . '">' . h(t('manifesto_link', $lang)) . '</a>'
         . '<a href="' . h(t('legal_url', $lang)) . '">' . h(t('legal_link', $lang)) . '</a>'
+        . '<a href="registre.php">' . h(t('registry_link', $lang)) . '</a>'
         . '<a href="mailto:contact@otspi.org">contact@otspi.org</a>'
         . '</div></footer></body></html>';
 }
