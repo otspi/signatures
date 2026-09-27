@@ -157,6 +157,12 @@ echo "$P" | grep -q 'form="lot"' && echo "$P" | grep -q 'Valider la sélection' 
 A -o /dev/null -w '%{redirect_url}' -d "a=valider-lot&f=attente" "$U/admin.php" | grep -q 'fait=lot-vide' && ok "lot vide refusé" || ko "lot vide"
 R=$(A -o /dev/null -w '%{http_code} %{redirect_url}' -d "a=valider-lot&ids[]=$MID&f=attente" "$U/admin.php")
 echo "$R" | grep -q '^303 .*fait=valider-lot.*id=1' && ok "validation par lot depuis l'administration" || ko "validation par lot ($R)"
+A "$U/admin.php?vue=stats" | grep -q 'class="stat-tile"' && A "$U/admin.php?vue=stats" | grep -q 'Signatures confirmées par jour' && ok "administration : statistiques" || ko "statistiques"
+docker exec "$CID" php -r 'require "/app/src/lib.php"; db()->exec("UPDATE signatures SET organisation = \"=HYPERLINK(1)\" WHERE email = \"ada@example.org\"");'
+A -D "$WORK/csv.h" "$U/admin.php?vue=export" -o "$WORK/export.csv"
+grep -qi '^content-type: text/csv' "$WORK/csv.h" && head -c 3 "$WORK/export.csv" | od -An -tx1 | grep -q 'ef bb bf' && grep -q "\"'=HYPERLINK(1)\"" "$WORK/export.csv" && grep -q '"ada@example.org"' "$WORK/export.csv" && ok "export CSV (BOM, formule neutralisée)" || ko "export CSV"
+curl -s -o /dev/null -w '%{http_code}' "$U/admin.php?vue=export" | grep -q 200 && curl -s "$U/admin.php?vue=export" | grep -q 'ada@example.org' && ko "export accessible sans session !" || ok "export réservé à la session d'administration"
+docker exec "$CID" php -r 'require "/app/src/lib.php"; db()->exec("UPDATE signatures SET organisation = \"Labo\" WHERE email = \"ada@example.org\"");'
 curl -s "$U/signataires.php" | grep -q Lovelace && ok "publiée après validation" || ko "absente de la liste"
 curl -s "$U/signataires.php" | grep -q 'ada@example.org' && ko "e-mail publié !" || ok "adresse e-mail jamais publiée"
 curl -s -D "$WORK/h.txt" -o "$WORK/c.svg" "$U/compteur.php"
