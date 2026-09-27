@@ -10,6 +10,7 @@ const UNCONFIRMED_TTL = 604800;  // 7 jours : durée de conservation d'une deman
 const MIN_FILL_SECONDS = 4;      // un humain met plus de 4 s à remplir le formulaire
 const MAX_FILL_SECONDS = 7200;   // formulaire périmé au-delà de 2 h
 const MAIL_HOURLY_CAP = 200;     // plafond global d'e-mails de confirmation par heure (surcharge : mail_hourly_cap)
+const POW_BITS = 18;             // preuve de travail : bits nuls en tête de l'empreinte (surcharge : pow_bits)
 
 // Erreur inattendue (base verrouillée, disque plein…) : journalisée, jamais affichée.
 set_exception_handler(static function (Throwable $e): void {
@@ -73,6 +74,10 @@ CREATE TABLE IF NOT EXISTS hits (
     at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS hits_ip ON hits (ip_hash, at);
+CREATE TABLE IF NOT EXISTS form_tokens (
+    hash TEXT PRIMARY KEY,
+    at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS admin_keys (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     credential_id TEXT NOT NULL UNIQUE,
@@ -149,21 +154,24 @@ function token_hash(string $token): string
     return hash_hmac('sha256', $token, config()['secret']);
 }
 
-/** Jeton de formulaire signé : horodatage + HMAC (aucune session, aucun cookie). */
+/**
+ * Jeton de formulaire signé : horodatage, aléa et HMAC (aucune session, aucun cookie). Il sert aussi de défi
+ * à la preuve de travail, et ne sert qu'une fois (form_token_spend).
+ */
 function form_token(): string
 {
-    $ts = (string) time();
-    return $ts . '.' . hash_hmac('sha256', 'form|' . $ts, config()['secret']);
+    $body = time() . '.' . bin2hex(random_bytes(8));
+    return $body . '.' . hash_hmac('sha256', 'form|' . $body, config()['secret']);
 }
 
 function form_token_state(string $token): string
 {
-    $parts = explode('.', $token, 2);
-    if (count($parts) !== 2 || !ctype_digit($parts[0])) {
+    $parts = explode('.', $token);
+    if (count($parts) !== 3 || !ctype_digit($parts[0]) || preg_match('/^[0-9a-f]{16}$/', $parts[1]) !== 1) {
         return 'invalid';
     }
-    $expected = hash_hmac('sha256', 'form|' . $parts[0], config()['secret']);
-    if (!hash_equals($expected, $parts[1])) {
+    $expected = hash_hmac('sha256', 'form|' . $parts[0] . '.' . $parts[1], config()['secret']);
+    if (!hash_equals($expected, $parts[2])) {
         return 'invalid';
     }
     $age = time() - (int) $parts[0];
@@ -171,6 +179,46 @@ function form_token_state(string $token): string
         return 'too_fast';
     }
     return $age > MAX_FILL_SECONDS ? 'expired' : 'ok';
+}
+
+/** Marque un jeton de formulaire comme utilisé : faux si il l'était déjà (preuve de travail rejouée). */
+function form_token_spend(string $token): bool
+{
+    $pdo = db();
+    $pdo->prepare('DELETE FROM form_tokens WHERE at < ?')->execute([time() - MAX_FILL_SECONDS]);
+    $insert = $pdo->prepare('INSERT OR IGNORE INTO form_tokens (hash, at) VALUES (?, ?)');
+    $insert->execute([token_hash($token), time()]);
+    return $insert->rowCount() === 1;
+}
+
+function pow_bits(): int
+{
+    return (int) (config()['pow_bits'] ?? POW_BITS);
+}
+
+/**
+ * Preuve de travail (assets/pow.js) : le navigateur cherche un entier tel que SHA-256(jeton:entier) commence
+ * par pow_bits() bits nuls, soit environ 2^18 essais (moins d'une seconde sur un ordinateur, quelques secondes
+ * sur un téléphone lent), calculés pendant que la personne remplit le formulaire. Négligeable pour une personne,
+ * coûteux pour un robot qui envoie en masse, qui doit en outre exécuter le calcul. Aucun service tiers.
+ */
+function pow_ok(string $token, string $nonce): bool
+{
+    if (preg_match('/^[0-9]{1,12}$/', $nonce) !== 1) {
+        return false;
+    }
+    $bits = pow_bits();
+    foreach (str_split(hash('sha256', $token . ':' . $nonce, true)) as $byte) {
+        if ($bits <= 0) {
+            return true;
+        }
+        for ($zeros = 0, $value = ord($byte); $zeros < 8 && ($value & (0x80 >> $zeros)) === 0; $zeros++);
+        if ($zeros < min(8, $bits)) {
+            return false;
+        }
+        $bits -= 8;
+    }
+    return true;
 }
 
 // ---- Limitation de débit ------------------------------------------------------------------------
@@ -293,6 +341,24 @@ function email_key(string $email): string
     $local = substr($email, 0, $at);
     $plus = strpos($local, '+');
     return ($plus === false || $plus === 0 ? $local : substr($local, 0, $plus)) . substr($email, $at);
+}
+
+/** Adresse d'un service d'e-mail jetable (src/disposable-domains.txt), domaine ou sous-domaine. */
+function disposable_email(string $email): bool
+{
+    static $domains = null;
+    $domains ??= array_flip(array_filter(array_map('trim', file(__DIR__ . '/disposable-domains.txt') ?: []),
+        static fn (string $line): bool => $line !== '' && $line[0] !== '#'));
+    $domain = strtolower(substr($email, strrpos($email, '@') + 1));
+    for ($d = $domain; $d !== ''; $d = (string) substr($d, (int) strpos($d, '.') + 1)) {
+        if (isset($domains[$d])) {
+            return true;
+        }
+        if (!str_contains($d, '.')) {
+            break;
+        }
+    }
+    return false;
 }
 
 function valid_email(string $email): bool

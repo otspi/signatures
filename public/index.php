@@ -15,7 +15,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'email' => (string) ($_POST['email'] ?? ''), 'fonction' => (string) ($_POST['fonction'] ?? ''),
         'organisation' => (string) ($_POST['organisation'] ?? ''), 'publier' => isset($_POST['publier']),
     ];
-    $state = form_token_state((string) ($_POST['ft'] ?? ''));
+    $formToken = (string) ($_POST['ft'] ?? '');
+    $state = form_token_state($formToken);
 
     if (($_POST['website'] ?? '') !== '') {
         // Piège à robots : champ invisible rempli. On répond comme en cas de succès, sans rien faire.
@@ -23,6 +24,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
     if ($state !== 'ok' || cross_site_post()) {
+        $error = 'err_form';
+    } elseif (!pow_ok($formToken, (string) ($_POST['pow'] ?? ''))) {
+        $error = 'err_pow';
+    } elseif (!form_token_spend($formToken)) {
+        // Jeton et preuve de travail déjà utilisés : un robot rejoue un envoi.
         $error = 'err_form';
     } elseif (rate_limited(5, 3600)) {
         $error = 'err_rate';
@@ -35,6 +41,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $email = strtolower(trim($old['email']));
         if ($prenom === null || $nom === null || $fonction === null || $organisation === null || !valid_email($email)) {
             $error = 'err_invalid';
+        } elseif (disposable_email($email)) {
+            $error = 'err_disposable';
         } else {
             $pdo = db();
             $token = new_token();
@@ -87,8 +95,9 @@ $field = static fn (string $name, string $label, string $type, bool $required, i
 $body = '<p class="lang"><a href="?lang=' . $other . '">' . strtoupper($other) . '</a></p>'
     . '<h1>' . h(t('heading', $lang)) . '</h1>'
     . ($error ? '<p class="error" role="alert">' . h(t($error, $lang)) . '</p>' : '')
-    . '<form method="post" action="?lang=' . $lang . '">'
-    . '<input type="hidden" name="lang" value="' . $lang . '"><input type="hidden" name="ft" value="' . h(form_token()) . '">'
+    . '<noscript><p class="error">' . h(t('noscript', $lang)) . '</p></noscript>'
+    . '<form method="post" action="?lang=' . $lang . '" data-pow="' . pow_bits() . '" data-pow-wait="' . h(t('pow_wait', $lang)) . '" data-pow-error="' . h(t('pow_error', $lang)) . '">'
+    . '<input type="hidden" name="lang" value="' . $lang . '"><input type="hidden" name="ft" value="' . h(form_token()) . '"><input type="hidden" name="pow" value="">'
     . '<p class="hp" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></p>'
     . $field('prenom', t('firstname', $lang), 'text', true, 80)
     . $field('nom', t('lastname', $lang), 'text', true, 80)
@@ -96,6 +105,6 @@ $body = '<p class="lang"><a href="?lang=' . $other . '">' . strtoupper($other) .
     . $field('fonction', t('position', $lang), 'text', false, 120)
     . $field('organisation', t('organisation', $lang), 'text', false, 120)
     . '<p><label><input type="checkbox" name="publier" value="1"' . ($old['publier'] ? ' checked' : '') . '> ' . h(t('publish', $lang)) . '</label></p>'
-    . '<p><button type="submit">' . h(t('submit', $lang)) . '</button></p></form>'
+    . '<p><button type="submit">' . h(t('submit', $lang)) . '</button></p><p class="pow-status muted" role="status"></p></form>'
     . '<p class="privacy">' . h(t('privacy', $lang)) . '</p>';
-page(t('title', $lang), $body, $lang, audience: true);
+page(t('title', $lang), $body, $lang, audience: true, script: 'assets/pow.js');
