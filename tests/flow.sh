@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="$(mktemp -d)"; mkdir -p "$WORK/data"
 cat > "$WORK/config.php" <<'PHP'
 <?php
-return ['base_url'=>'http://localhost:8090','db_path'=>'/work/data/s.sqlite','secret'=>'test-secret','mail_from'=>'no-reply@example.org','mail_from_name'=>'OTSPI','contact'=>'contact@otspi.org','mail_dry_run'=>true,'mail_log'=>'/work/data/mail.log','mail_hourly_cap'=>2];
+return ['base_url'=>'http://localhost:8090','db_path'=>'/work/data/s.sqlite','secret'=>'test-secret','mail_from'=>'no-reply@example.org','mail_from_name'=>'OTSPI','contact'=>'contact@otspi.org','mail_dry_run'=>true,'mail_log'=>'/work/data/mail.log','mail_hourly_cap'=>2,'pow_bits'=>8];
 PHP
 # Base à l'ancien schéma (sans modération) avec une signature confirmée, pour tester la migration
 docker run --rm -v "$WORK":/work php:8.3-cli php -r '$p = new PDO("sqlite:/work/data/s.sqlite");
@@ -20,12 +20,17 @@ U=http://localhost:8090
 ok() { echo "OK  $1"; }; ko() { echo "ÉCHEC $1"; exit 1; }
 curl -s "$U/signataires.php" | grep -q Hopper && ok "migration : signature existante reste publiée" || ko "migration"
 ft() { curl -s "$U/" | grep -o 'name="ft" value="[^"]*"' | sed 's/.*value="//;s/"$//'; }
+# Preuve de travail (8 bits dans ce test), calculée comme le ferait assets/pow.js
+pow() { docker exec "$CID" php -r 'require "/app/src/lib.php"; for ($n = 0; !pow_ok($argv[1], (string) $n); $n++); echo $n;' "$1"; }
+badpow() { docker exec "$CID" php -r 'require "/app/src/lib.php"; for ($n = 0; pow_ok($argv[1], (string) $n); $n++); echo $n;' "$1"; }
 
 FT=$(ft); sleep 5
-R=$(curl -s -o /dev/null -w '%{http_code}' -H 'Sec-Fetch-Site: same-origin' -H 'Origin: null' -d "ft=$FT&prenom=Ada&nom=Lovelace&email=ada@example.org&fonction=Ingénieure&organisation=Labo&publier=1&website=" "$U/")
+R=$(curl -s -o /dev/null -w '%{http_code}' -H 'Sec-Fetch-Site: same-origin' -H 'Origin: null' -d "ft=$FT&pow=$(pow "$FT")&prenom=Ada&nom=Lovelace&email=ada@example.org&fonction=Ingénieure&organisation=Labo&publier=1&website=" "$U/")
 [ "$R" = 200 ] && grep -q 'ada@example.org' "$WORK/data/mail.log" && ok "inscription et e-mail de confirmation" || ko "inscription"
 TOKEN=$(grep -o 'confirm.php?t=[0-9a-f]*' "$WORK/data/mail.log" | head -1 | sed 's/.*t=//')
 [ "$(curl -s "$U/signataires.php" | grep -c Lovelace)" = 0 ] && ok "non publiée avant confirmation" || ko "publiée trop tôt"
+curl -s "$U/" | grep -q 'data-pow="8"' && curl -s -D - -o /dev/null "$U/" | grep -qi "script-src 'self'" && ok "formulaire : preuve de travail proposée" || ko "preuve de travail absente du formulaire"
+curl -s -d "ft=$FT&pow=$(pow "$FT")&prenom=Rejeu&nom=Robot&email=rejeu@example.org&website=" "$U/" | grep -q 'a expiré' && ! grep -q 'rejeu@example.org' "$WORK/data/mail.log" && ok "jeton et preuve de travail à usage unique" || ko "jeton et preuve de travail rejoués"
 grep -q '^Bonjour,$' "$WORK/data/mail.log" && grep -q 'Organisation : Labo' "$WORK/data/mail.log" && ok "e-mail sans nom en tête, avec récapitulatif" || ko "récapitulatif de l'e-mail"
 curl -s "$U/confirm.php?t=$TOKEN" | grep -q 'method="post"' && ok "le lien affiche un bouton de confirmation" || ko "page de confirmation"
 curl -s "$U/confirm.php?t=$TOKEN" | grep -q '<dd>Lovelace</dd>' && ok "récapitulatif sur la page de confirmation" || ko "récapitulatif de la page"
@@ -118,32 +123,39 @@ A "$U/admin.php?f=attente" | grep -q 'Se déconnecter' && ko "session encore ouv
 LOGIN=$(curl -s "$U/admin.php" | AUTH get /work/key2.json)
 curl -s -c "$J2" -o /dev/null -H 'Sec-Fetch-Site: same-origin' --data-urlencode "reponse=$LOGIN" -d "a=connexion" "$U/admin.php"
 FT=$(ft); sleep 5
-curl -s -o /dev/null -d "ft=$FT&prenom=Ada&nom=Lovelace&email=Ada%2Bbis@example.org" "$U/"
+curl -s -o /dev/null -d "ft=$FT&pow=$(pow "$FT")&prenom=Ada&nom=Lovelace&email=Ada%2Bbis@example.org" "$U/"
 grep -q 'TO: ada+bis@example.org' "$WORK/data/mail.log" && ko "doublon par alias +tag" || ok "alias +tag d'une adresse déjà signée : aucun nouvel envoi"
 FT=$(ft); sleep 5
-curl -s -o /dev/null -d "ft=$FT&prenom=Alan&nom=Turing&email=alan%2Bmanifeste@example.org" "$U/"
+curl -s -o /dev/null -d "ft=$FT&pow=$(pow "$FT")&prenom=Alan&nom=Turing&email=alan%2Bmanifeste@example.org" "$U/"
 grep -q 'TO: alan+manifeste@example.org' "$WORK/data/mail.log" && ok "adresse +tag acceptée, envoi à l'adresse complète" || ko "adresse +tag"
 W=$(grep -o 'withdraw.php?t=[0-9a-f]*' "$WORK/data/mail.log" | tail -1 | sed 's/.*t=//')
 curl -s -o /dev/null -d "t=$W" "$U/withdraw.php"
 curl -s "$U/signataires.php" | grep -q Lovelace && ko "retrait sans effet" || ok "retrait et suppression"
 R=$(curl -s -o /dev/null -w '%{http_code}' -d "ft=$(ft)&prenom=Bot&nom=Bot&email=bot@example.org&website=x" "$U/")
 grep -q 'bot@example.org' "$WORK/data/mail.log" && ko "piège à robots" || ok "piège à robots"
-FT=$(ft); curl -s -d "ft=$FT&prenom=Vite&nom=Vite&email=vite@example.org" "$U/" | grep -q 'role="alert"' && ok "formulaire envoyé trop vite refusé" || ko "trop vite"
+FT=$(ft); sleep 5
+curl -s -d "ft=$FT&prenom=Sans&nom=Calcul&email=sanscalcul@example.org" "$U/" | grep -q 'vérification anti-robot' && ! grep -q 'sanscalcul@example.org' "$WORK/data/mail.log" && ok "envoi sans preuve de travail refusé" || ko "preuve de travail absente acceptée"
+curl -s -d "ft=$FT&pow=$(badpow "$FT")&prenom=Faux&nom=Calcul&email=fauxcalcul@example.org" "$U/" | grep -q 'vérification anti-robot' && ok "preuve de travail fausse refusée" || ko "preuve de travail fausse acceptée"
+FT=$(ft); sleep 5
+curl -s -d "ft=$FT&pow=$(pow "$FT")&prenom=Jet&nom=Able&email=jet@yopmail.fr" "$U/" | grep -q 'jetables' && ! grep -q 'jet@yopmail.fr' "$WORK/data/mail.log" && ok "adresse jetable refusée" || ko "adresse jetable acceptée"
+docker exec "$CID" php -r 'require "/app/src/lib.php"; echo disposable_email("a@mx.mailinator.com") && !disposable_email("a@otspi.org") && !disposable_email("a@notyopmail.fr") ? "ok" : "ko";' | grep -q ok && ok "domaines jetables : sous-domaines compris, pas de faux positif" || ko "détection des domaines jetables"
+docker exec "$CID" php -r 'require "/app/src/lib.php"; for ($n = 0, $bad = 0; $n < 3000; $n++) { $h = hash("sha256", "t:" . $n); $want = str_starts_with($h, "00"); $bad += pow_ok("t", (string) $n) !== $want; } echo $bad;' | grep -qx 0 && ok "preuve de travail : contrôle exact des 8 bits" || ko "calcul des bits nuls"
+FT=$(ft); curl -s -d "ft=$FT&pow=$(pow "$FT")&prenom=Vite&nom=Vite&email=vite@example.org" "$U/" | grep -q 'role="alert"' && ok "formulaire envoyé trop vite refusé" || ko "trop vite"
 curl -s -d "ft=faux&prenom=A&nom=B&email=a@example.org" "$U/" | grep -q 'role="alert"' && ok "jeton falsifié refusé" || ko "jeton"
 FT=$(ft); sleep 5
-curl -s -d "ft=$FT&nom=Faux&email=bidi@example.org" --data-urlencode "prenom=$(printf 'Ada\u202Eecalevol')" "$U/" | grep -q 'role="alert"' && ok "caractères bidirectionnels refusés" || ko "bidi accepté"
+curl -s -d "ft=$FT&pow=$(pow "$FT")&nom=Faux&email=bidi@example.org" --data-urlencode "prenom=$(printf 'Ada\u202Eecalevol')" "$U/" | grep -q 'role="alert"' && ok "caractères bidirectionnels refusés" || ko "bidi accepté"
 # Plafond global (2 par heure dans ce test) : on isole de la limite par IP en vidant ses empreintes.
 docker exec "$CID" php -r 'require "/app/src/lib.php"; db()->exec("DELETE FROM hits");'
 FT=$(ft); sleep 5
-curl -s -o /dev/null -d "ft=$FT&prenom=Hedy&nom=Lamarr&email=hedy@example.org" "$U/"
+curl -s -o /dev/null -d "ft=$FT&pow=$(pow "$FT")&prenom=Hedy&nom=Lamarr&email=hedy@example.org" "$U/"
 grep -q 'TO: hedy@example.org' "$WORK/data/mail.log" && ok "envoi sous le plafond" || ko "envoi sous le plafond"
 docker exec "$CID" php -r 'require "/app/src/lib.php"; echo mail_cap_reached() ? "plein" : "libre";' | grep -q plein && ok "plafond global d'envois atteint" || ko "plafond global"
 FT=$(ft); sleep 5
-curl -s -d "ft=$FT&prenom=Plafond&nom=Test&email=plafond@example.org" "$U/" | grep -q 'role="alert"' && ! grep -q 'plafond@example.org' "$WORK/data/mail.log" && ok "aucun envoi au-delà du plafond" || ko "envoi au-delà du plafond"
+curl -s -d "ft=$FT&pow=$(pow "$FT")&prenom=Plafond&nom=Test&email=plafond@example.org" "$U/" | grep -q 'role="alert"' && ! grep -q 'plafond@example.org' "$WORK/data/mail.log" && ok "aucun envoi au-delà du plafond" || ko "envoi au-delà du plafond"
 FT=$(ft); sleep 5
-curl -s -H 'Sec-Fetch-Site: cross-site' -d "ft=$FT&prenom=A&nom=B&email=x@example.org" "$U/" | grep -q 'role="alert"' && ok "envoi depuis un autre site refusé (Sec-Fetch-Site)" || ko "intersite Sec-Fetch-Site"
-curl -s -H 'Origin: https://evil.example' -d "ft=$FT&prenom=A&nom=B&email=x@example.org" "$U/" | grep -q 'role="alert"' && ok "envoi depuis un autre site refusé (Origin)" || ko "intersite Origin"
-curl -s -d "ft=$FT&prenom=Ada&nom=Faux&email=lien@example.org" --data-urlencode "organisation=Voir https://evil.example" "$U/" | grep -q 'role="alert"' && ok "liens refusés dans les champs" || ko "lien accepté"
+curl -s -H 'Sec-Fetch-Site: cross-site' -d "ft=$FT&pow=$(pow "$FT")&prenom=A&nom=B&email=x@example.org" "$U/" | grep -q 'role="alert"' && ok "envoi depuis un autre site refusé (Sec-Fetch-Site)" || ko "intersite Sec-Fetch-Site"
+curl -s -H 'Origin: https://evil.example' -d "ft=$FT&pow=$(pow "$FT")&prenom=A&nom=B&email=x@example.org" "$U/" | grep -q 'role="alert"' && ok "envoi depuis un autre site refusé (Origin)" || ko "intersite Origin"
+curl -s -d "ft=$FT&pow=$(pow "$FT")&prenom=Ada&nom=Faux&email=lien@example.org" --data-urlencode "organisation=Voir https://evil.example" "$U/" | grep -q 'role="alert"' && ok "liens refusés dans les champs" || ko "lien accepté"
 docker exec "$CID" php -r 'require "/app/src/lib.php";
 $_SERVER["REMOTE_ADDR"] = "2001:db8:1:2::1"; $a = ip_hash(); $_SERVER["REMOTE_ADDR"] = "2001:db8:1:2:ffff::9"; $b = ip_hash();
 $_SERVER["REMOTE_ADDR"] = "::ffff:192.0.2.1"; $c = ip_hash(); $_SERVER["REMOTE_ADDR"] = "::ffff:192.0.2.2"; $d = ip_hash();

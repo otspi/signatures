@@ -14,6 +14,8 @@ return [
     // Facultatif : modèles de clé de sécurité acceptés pour l'administration (AAGUID en minuscules, affiché
     // dans la page « Clés de sécurité »). Vide : toute clé externe avec code PIN.
     'admin_aaguids' => [],
+    // Facultatif : difficulté de la preuve de travail anti-robots (bits nuls, 18 par défaut ; +1 double le calcul).
+    // 'pow_bits' => 18,
     // Pour les essais : ne pas envoyer, journaliser dans mail_log.
     'mail_dry_run' => false,
     'mail_log' => __DIR__ . '/data/mail.log',

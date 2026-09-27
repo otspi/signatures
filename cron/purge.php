@@ -14,4 +14,5 @@ $old = $pdo->prepare('DELETE FROM signatures WHERE confirmed_at IS NULL AND crea
 $old->execute([time() - UNCONFIRMED_TTL]);
 $pdo->prepare('DELETE FROM hits WHERE at < ?')->execute([time() - 3600]);
 $pdo->prepare('DELETE FROM admin_tokens WHERE expires_at < ?')->execute([time()]);
+$pdo->prepare('DELETE FROM form_tokens WHERE at < ?')->execute([time() - MAX_FILL_SECONDS]);
 echo date('c') . ' purge : ' . $old->rowCount() . " demande(s) non confirmée(s) supprimée(s)\n";
