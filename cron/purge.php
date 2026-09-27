@@ -3,7 +3,8 @@
 // Tâche quotidienne (cron) : supprime les demandes non confirmées de plus de 7 jours ainsi que les empreintes
 // de limitation de débit, invitations, défis et sessions d'administration périmés ; horodate les signatures qui
 // ne le sont pas encore et envoie leur preuve (src/horodatage.php) ; inscrit l'entrée du jour au registre
-// horodaté (src/registre.php) ; envoie la sauvegarde chiffrée de la base (src/sauvegarde.php). Au moindre
+// horodaté (src/registre.php) ; envoie le récapitulatif des signatures à modérer et la sauvegarde chiffrée de la
+// base (src/sauvegarde.php). Au moindre
 // problème, une alerte part à l'adresse de contact (au plus une par passage).
 
 declare(strict_types=1);
@@ -56,6 +57,9 @@ if ($pending !== false && $pending > 0) {
 if ($broken !== false && $broken !== null) {
     $problems[] = "Registre : chaînage rompu à l'entrée n° $broken.";
 }
+
+$digest = $step('récapitulatif de modération', 'moderation_digest');
+echo date('c') . ' modération : ' . ($digest === false ? 'erreur' : "$digest signature(s) à modérer") . "\n";
 
 $backup = $step('sauvegarde', 'backup_send');
 echo date('c') . ' sauvegarde : ' . (is_string($backup) ? $backup : 'échec') . "\n";

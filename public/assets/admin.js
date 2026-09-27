@@ -8,6 +8,14 @@
   const encode = (buffer) => btoa(String.fromCharCode(...new Uint8Array(buffer)))
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
+  // Modération par lot : « Tout sélectionner » coche les cases rattachées au formulaire #lot.
+  const all = document.querySelector('[data-select-all]');
+  if (all) {
+    all.addEventListener('change', () => {
+      document.querySelectorAll('input[name="ids[]"][form="lot"]').forEach((box) => { box.checked = all.checked; });
+    });
+  }
+
   for (const form of document.querySelectorAll('form[data-webauthn]')) {
     const status = form.querySelector('.webauthn-status');
     const button = form.querySelector('button');

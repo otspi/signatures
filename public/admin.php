@@ -28,6 +28,9 @@ const DONE = [
     'trop-tot' => ['error', 'Demande #%d : un e-mail lui a été envoyé il y a moins de 10 minutes, réessayez plus tard.'],
     'echec' => ['error', 'Demande #%d : l’e-mail n’a pas pu être envoyé.'],
     'rien' => ['error', 'Signature #%d introuvable ou dans un autre état : aucune modification.'],
+    'valider-lot' => ['notice', '%d signature(s) validée(s) : elles seront publiées dans quelques minutes.'],
+    'masquer-lot' => ['notice', '%d signature(s) masquée(s).'],
+    'lot-vide' => ['error', 'Aucune signature sélectionnée.'],
     'cle' => ['notice', 'Clé de sécurité enregistrée.'],
     'revoquee' => ['notice', 'Clé #%d révoquée.'],
     'derniere' => ['error', 'La clé #%d est la seule enregistrée : ajoutez-en une autre avant de la révoquer.'],
@@ -232,8 +235,8 @@ $keyError = '';
 
 if ($post) {
     $id = (int) ($_POST['id'] ?? 0);
-    $known = in_array($action, [...MODERATION_ACTIONS, 'renvoyer', 'revoquer', 'ajouter-cle', 'deconnexion'], true);
-    if (cross_site_post() || !$known || ($id <= 0 && !in_array($action, ['ajouter-cle', 'deconnexion'], true))) {
+    $known = in_array($action, [...MODERATION_ACTIONS, 'renvoyer', 'revoquer', 'ajouter-cle', 'deconnexion', 'valider-lot', 'masquer-lot'], true);
+    if (cross_site_post() || !$known || ($id <= 0 && !in_array($action, ['ajouter-cle', 'deconnexion', 'valider-lot', 'masquer-lot'], true))) {
         error_log(sprintf('otspi-signatures : action d\'administration refusée (#%d, action « %s », Sec-Fetch-Site=%s, Origin=%s)',
             $id, $action, $_SERVER['HTTP_SEC_FETCH_SITE'] ?? '-', $_SERVER['HTTP_ORIGIN'] ?? '-'));
         http_response_code(400);
@@ -244,6 +247,15 @@ if ($post) {
     if ($action === 'deconnexion') {
         admin_logout();
         redirect();
+    }
+    if ($action === 'valider-lot' || $action === 'masquer-lot') {
+        // Modération par lot : seulement valider ou masquer ; la suppression reste unitaire et confirmée.
+        $ids = array_slice(array_unique(array_filter(array_map('intval', (array) ($_POST['ids'] ?? [])), static fn (int $i): bool => $i > 0)), 0, 500);
+        $done = 0;
+        foreach ($ids as $selected) {
+            $done += moderate($selected, $action === 'valider-lot' ? 'valider' : 'masquer') ? 1 : 0;
+        }
+        redirect($here + ['fait' => $ids === [] ? 'lot-vide' : $action, 'id' => $done]);
     }
     if ($action === 'ajouter-cle') {
         $keyError = register_key($sessionRef, null);
@@ -358,20 +370,28 @@ foreach ($rows as $row) {
         . ($row['confirmed_at'] !== null
             ? 'Confirmée : ' . when((int) $row['confirmed_at']) . '<br>Horodatée : ' . when($row['proof_at'] === null ? null : (int) $row['proof_at'])
             : 'Dernier e-mail : ' . when((int) $row['last_mail_at']) . '<br>Purge : ' . when((int) $row['created_at'] + UNCONFIRMED_TTL));
-    $lines .= '<tr><td>' . (int) $row['id'] . '</td>'
+    [$hint, $hintClass] = email_org_hint($row['email'], $row['organisation']);
+    $pending = $row['confirmed_at'] !== null && (int) $row['publier'] === 1 && $row['approved_at'] === null;
+    $lines .= '<tr><td>' . ($pending ? '<input type="checkbox" name="ids[]" value="' . (int) $row['id'] . '" form="lot" aria-label="Sélectionner la signature #' . (int) $row['id'] . '"> ' : '') . (int) $row['id'] . '</td>'
         . '<td><strong>' . h(trim($row['prenom'] . ' ' . $row['nom'])) . '</strong>'
         . ($quality !== '' ? '<br><span class="muted">' . h($quality) . '</span>' : '') . '</td>'
-        . '<td class="email">' . h($row['email']) . '</td>'
+        . '<td class="email">' . h($row['email']) . '<br><span class="badge ' . $hintClass . '" title="Estimation à partir du domaine, pas une vérification">' . h($hint) . '</span></td>'
         . '<td class="dates">' . $dates . '</td>'
         . '<td><span class="badge ' . $stateClass . '">' . h($stateLabel) . '</span></td>'
         . '<td><div class="row-actions">' . $actions . '</div></td></tr>';
 }
 
 admin_page('Administration des signatures', '<h1>Administration des signatures</h1>' . $nav
-    . '<p class="muted">Les signatures validées apparaissent sur www.otspi.org au prochain rafraîchissement quotidien. '
+    . '<p class="muted">Les signatures validées apparaissent sur www.otspi.org en quelques minutes. '
     . 'Une demande non confirmée peut recevoir un nouveau lien (48 heures) ; sans confirmation, elle est purgée au bout de 7 jours.</p>'
     . $flash
     . '<nav class="tabs" aria-label="Filtrer les signatures">' . $tabs . '</nav>'
+    . ($filter === 'attente' && $rows !== []
+        ? '<form method="post" action="admin.php" id="lot" class="bulk-actions">' . hidden_inputs($here)
+            . '<label><input type="checkbox" data-select-all> Tout sélectionner</label>'
+            . '<button type="submit" name="a" value="valider-lot" class="small">Valider la sélection</button>'
+            . '<button type="submit" name="a" value="masquer-lot" class="small secondary">Masquer la sélection</button></form>'
+        : '')
     . ($rows === []
         ? '<p>Aucune signature dans cette catégorie.</p>'
         : '<div class="table-wrap"><table class="admin-table"><thead><tr><th scope="col">#</th><th scope="col">Signataire</th>'
