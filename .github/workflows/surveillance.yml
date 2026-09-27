@@ -1,0 +1,34 @@
+name: Surveillance de l'application
+
+# Toutes les 30 minutes, lit l'état de santé de l'application (public/sante.php : base, tâche quotidienne,
+# sauvegarde, registre horodaté, horodatage, autorité d'horodatage). En cas d'alerte ou d'absence de réponse
+# après trois essais, le job échoue : GitHub prévient par e-mail la personne qui a activé le workflow planifié.
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sante:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: État de santé
+        run: |
+          set -u
+          url="https://manifesto-sign.otspi.org/sante.php"
+          for essai in 1 2 3; do
+            code=$(curl -sS -m 25 -o sante.json -w '%{http_code}' "$url" || echo 000)
+            if [ "$code" = 200 ]; then
+              cat sante.json
+              exit 0
+            fi
+            echo "Essai $essai : HTTP $code"
+            [ -s sante.json ] && cat sante.json
+            sleep 20
+          done
+          echo "::error title=Application de signature en alerte::$url ne répond pas ou signale un problème (voir le journal)"
+          exit 1

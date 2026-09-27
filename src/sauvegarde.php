@@ -40,6 +40,8 @@ function backup_send(): ?string
             . "OTSPI — contact@otspi.org", 'fr', [$name => $data]);
         if (!$sent) {
             error_log('otspi-signatures : sauvegarde non envoyée');
+        } else {
+            etat_set('sauvegarde', $name);
         }
         return $sent ? $name : null;
     } finally {

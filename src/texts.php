@@ -67,9 +67,11 @@ return [
     'confirm_invalid' => ['fr' => 'Ce lien n’est plus valide. Vous pouvez signer à nouveau depuis le formulaire.', 'en' => 'This link is no longer valid. You can sign again using the form.'],
     'withdraw_title' => ['fr' => 'Retirer ma signature', 'en' => 'Withdraw my signature'],
     'withdraw_ask' => ['fr' => 'Confirmez-vous le retrait de votre signature et la suppression de vos données ?', 'en' => 'Do you confirm withdrawing your signature and deleting your data?'],
+    'withdraw_export' => ['fr' => 'Avant de décider, vous pouvez télécharger les données enregistrées à votre sujet :', 'en' => 'Before deciding, you can download the data stored about you:'],
+    'withdraw_export_link' => ['fr' => 'Télécharger mes données (JSON)', 'en' => 'Download my data (JSON)'],
     'withdraw_button' => ['fr' => 'Retirer et supprimer mes données', 'en' => 'Withdraw and delete my data'],
     'withdrawn_title' => ['fr' => 'Signature retirée', 'en' => 'Signature withdrawn'],
-    'withdrawn' => ['fr' => 'Votre signature et vos données ont été supprimées. Le retrait de la liste publique est effectif au prochain rafraîchissement du site (sous 24 heures).', 'en' => 'Your signature and your data have been deleted. Removal from the public list takes effect at the next refresh of the website (within 24 hours).'],
+    'withdrawn' => ['fr' => 'Votre signature et vos données ont été supprimées. Votre nom disparaît de la liste publique d’ici quelques minutes.', 'en' => 'Your signature and your data have been deleted. Your name will disappear from the public list within a few minutes.'],
     'mail_confirm_subject' => ['fr' => 'Confirmez votre signature du manifeste OTSPI', 'en' => 'Confirm your signature of the OTSPI manifesto'],
     // Pas de nom en tête de message : les champs saisis ne figurent que dans le récapitulatif, présenté
     // comme tel, pour que le site ne serve pas à faire parvenir un texte libre à une adresse quelconque.

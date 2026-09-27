@@ -30,6 +30,13 @@ Protections : jeton de formulaire signé avec délai minimal, à usage unique (a
 
 Mesure d'audience : seuls le formulaire (`index.php`) et la page « signature confirmée » chargent `assets/analytics.js` (Matomo Tag Manager de `stats.otspi.org`, sans cookie) et ouvrent leur CSP à ce domaine. Le formulaire charge aussi `assets/pow.js` (preuve de travail, sans appel extérieur). Les pages dont l'adresse porte un jeton personnel (lien de confirmation, retrait, modération) ne sont pas mesurées. Le formulaire déclare aussi des événements anonymes (attributs `data-track` et `data-track-load`, voir `analytics.js`) : clic sur « Envoyer », code d'erreur éventuel (`err_…`, jamais les valeurs saisies), page « demande envoyée » et page « signature confirmée » (réponse au POST de confirmation, dont l'adresse `confirm.php?lang=…` ne porte pas le jeton). `analytics.js` est commun aux sites d'OTSPI : sa source est dans le dépôt `vitrine` ; après une copie, incrémenter `?v=` dans `page()` (`src/lib.php`).
 
+## Surveillance et données personnelles dans la durée
+
+- **État de santé** : `public/sante.php` renvoie en JSON, sans donnée personnelle, l'état de la base, de la tâche quotidienne, de la dernière sauvegarde, du registre horodaté, de l'horodatage des signatures et de l'autorité d'horodatage (interrogée au plus toutes les 5 minutes) ; HTTP 200 si tout va bien, 503 sinon. Un contrôle jamais encore exécuté est « en attente ».
+- **Surveillance externe** : `.github/workflows/surveillance.yml` lit cette page toutes les 30 minutes (trois essais) ; en cas d'alerte, le job échoue et GitHub prévient par e-mail la personne qui a activé le workflow planifié.
+- **Durée de conservation** : `campagne_fin` (`config.php`, AAAA-MM-JJ) déclenche la suppression de toutes les signatures deux ans après, comme l'annonce le texte d'information, avec un avis à l'adresse `contact` 30 et 7 jours avant.
+- **Droit d'accès** : la page de retrait propose de télécharger, en JSON, toutes les données enregistrées sur la personne avant de décider.
+
 ## Installation
 
 1. Copier le dépôt hors du dossier web, le dossier `public/` étant la racine du site. Les dossiers `src/`, `data/`, `bin/` et `cron/` ne doivent pas être servis.
@@ -52,6 +59,8 @@ Avant un déploiement qui modifie le schéma, sauvegarder `data/signatures.sqlit
 ## Tests
 
 `bash tests/flow.sh` : test de bout en bout (Docker requis) couvrant l'inscription, la confirmation, la modération, l'administration par clé de sécurité (clé virtuelle `tests/authenticator.php` : enregistrement, PIN absent, signature altérée, autre origine, rejeu, compteur, révocation), la liste publique, le retrait et les protections anti-abus.
+
+`bash tests/navigateur.sh` : tests dans un vrai navigateur (Chromium piloté par Playwright, image Docker officielle, partageant le réseau du conteneur PHP pour rester sur `http://localhost`) : preuve de travail calculée par le navigateur, copie du lien de partage, enregistrement et connexion avec une clé de sécurité virtuelle (refusée sans code PIN), sélection par lot, aucune erreur JavaScript ni CSP. La mesure d'audience y est neutralisée. La CI les passe avant tout déploiement.
 
 ## Données personnelles
 
