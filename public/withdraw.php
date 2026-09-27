@@ -19,11 +19,31 @@ if ($valid && $_SERVER['REQUEST_METHOD'] === 'POST' && !cross_site_post()) {
         exit;
     }
 } elseif ($valid) {
-    $exists = $pdo->prepare('SELECT 1 FROM signatures WHERE withdraw_hash = ?');
-    $exists->execute([$hash]);
-    if ($exists->fetchColumn()) {
+    $row = $pdo->prepare('SELECT email, prenom, nom, fonction, organisation, publier, lang, created_at, confirmed_at, approved_at, proof_at, proof_json FROM signatures WHERE withdraw_hash = ?');
+    $row->execute([$hash]);
+    $signature = $row->fetch();
+    if ($signature !== false && ($_GET['f'] ?? '') === 'json') {
+        // Droit d'accès et de portabilité : toutes les données enregistrées, sans les empreintes de jetons.
+        $iso = static fn ($t): ?string => $t === null ? null : gmdate('Y-m-d\TH:i:s\Z', (int) $t);
+        header('Content-Type: application/json; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="mes-donnees-signature-otspi.json"');
+        header('Cache-Control: no-store');
+        header('X-Content-Type-Options: nosniff');
+        echo json_encode([
+            'responsable' => 'Initiative OTSPI — contact@otspi.org',
+            'email' => $signature['email'], 'prenom' => $signature['prenom'], 'nom' => $signature['nom'],
+            'fonction' => $signature['fonction'], 'organisation' => $signature['organisation'],
+            'publication_acceptee' => (int) $signature['publier'] === 1, 'langue' => $signature['lang'],
+            'demande_le' => $iso($signature['created_at']), 'confirmee_le' => $iso($signature['confirmed_at']),
+            'moderee_le' => $iso($signature['approved_at']), 'horodatee_le' => $iso($signature['proof_at']),
+            'attestation_horodatee' => $signature['proof_json'] === null ? null : json_decode($signature['proof_json'], true),
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+    if ($signature !== false) {
         page(t('withdraw_title', $lang),
             '<h1>' . h(t('withdraw_title', $lang)) . '</h1><p>' . h(t('withdraw_ask', $lang)) . '</p>'
+            . '<p>' . h(t('withdraw_export', $lang)) . ' <a href="?' . h(http_build_query(['t' => $token, 'lang' => $lang, 'f' => 'json'])) . '">' . h(t('withdraw_export_link', $lang)) . '</a></p>'
             . '<form method="post" action="?lang=' . $lang . '"><input type="hidden" name="t" value="' . h($token) . '">'
             . '<button type="submit">' . h(t('withdraw_button', $lang)) . '</button></form>', $lang);
         exit;

@@ -81,6 +81,11 @@ CREATE TABLE IF NOT EXISTS registre (
     jeton TEXT,
     horodate_le INTEGER
 );
+CREATE TABLE IF NOT EXISTS etat (
+    cle TEXT PRIMARY KEY,
+    valeur TEXT NOT NULL,
+    at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS form_tokens (
     hash TEXT PRIMARY KEY,
     at INTEGER NOT NULL
@@ -324,6 +329,50 @@ function moderate(int $id, string $action): bool
     $statement = db()->prepare($sql);
     $statement->execute($action === 'supprimer' ? ['id' => $id] : ['id' => $id, 'now' => time()]);
     return $statement->rowCount() === 1;
+}
+
+// ---- État de fonctionnement et conservation --------------------------------------------------
+
+/** Dernier état connu d'une tâche (dernière sauvegarde, dernier passage de la tâche quotidienne…). */
+function etat_set(string $cle, string $valeur): void
+{
+    db()->prepare('INSERT INTO etat (cle, valeur, at) VALUES (?, ?, ?) ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur, at = excluded.at')
+        ->execute([$cle, $valeur, time()]);
+}
+
+function etat_get(string $cle): ?array
+{
+    $row = db()->prepare('SELECT valeur, at FROM etat WHERE cle = ?');
+    $row->execute([$cle]);
+    return $row->fetch() ?: null;
+}
+
+/**
+ * Durée de conservation annoncée dans le texte d'information : les signatures sont gardées pendant la campagne
+ * (fin : campagne_fin, AAAA-MM-JJ) puis deux ans au plus. Le jour venu, toutes les signatures et demandes sont
+ * supprimées ; 30 et 7 jours avant, un avis part à l'adresse de contact. Renvoie le message à journaliser, ou null.
+ */
+function retention_check(): ?string
+{
+    $end = (string) (config()['campagne_fin'] ?? '');
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $end) !== 1) {
+        return null;
+    }
+    $deadline = (new DateTimeImmutable($end))->modify('+2 years');
+    $days = (int) (new DateTimeImmutable('today'))->diff($deadline)->format('%r%a');
+    if ($days <= 0) {
+        $count = db()->exec('DELETE FROM signatures');
+        $message = "Fin de la durée de conservation (campagne close le $end, plus deux ans) : $count signature(s) et demande(s) supprimée(s).";
+        send_mail(config()['contact'], 'Signatures supprimées : fin de la durée de conservation', $message . "\n\nOTSPI — contact@otspi.org");
+        return $message;
+    }
+    if (in_array($days, [30, 7], true)) {
+        $message = "Les signatures seront supprimées dans $days jours ({$deadline->format('d/m/Y')}), fin de la durée de conservation annoncée "
+            . "(campagne close le $end, plus deux ans). Pour prolonger, il faudrait recueillir à nouveau le consentement des signataires.";
+        send_mail(config()['contact'], "Suppression des signatures dans $days jours", $message . "\n\nOTSPI — contact@otspi.org");
+        return $message;
+    }
+    return null;
 }
 
 // ---- Adresse et organisation -----------------------------------------------------------------

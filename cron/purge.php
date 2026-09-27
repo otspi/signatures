@@ -4,7 +4,7 @@
 // de limitation de débit, invitations, défis et sessions d'administration périmés ; horodate les signatures qui
 // ne le sont pas encore et envoie leur preuve (src/horodatage.php) ; inscrit l'entrée du jour au registre
 // horodaté (src/registre.php) ; envoie le récapitulatif des signatures à modérer et la sauvegarde chiffrée de la
-// base (src/sauvegarde.php). Au moindre
+// base (src/sauvegarde.php) ; applique la durée de conservation (campagne_fin). Au moindre
 // problème, une alerte part à l'adresse de contact (au plus une par passage).
 
 declare(strict_types=1);
@@ -67,6 +67,12 @@ if ($backup === null) {
     $problems[] = 'Sauvegarde : la sauvegarde chiffrée de la base n\'a pas pu être envoyée.';
 }
 
+$retention = $step('durée de conservation', 'retention_check');
+if (is_string($retention)) {
+    echo date('c') . " conservation : $retention\n";
+}
+
+etat_set('tache', $problems === [] ? 'ok' : count($problems) . ' problème(s)');
 if ($problems !== []) {
     send_mail(config()['contact'], 'Alerte : tâche quotidienne des signatures',
         "La tâche quotidienne de l'application de signature a rencontré un problème :\n\n"
