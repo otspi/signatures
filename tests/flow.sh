@@ -51,6 +51,8 @@ sleep 3
 U=http://localhost:8090
 ok() { echo "OK  $1"; }; ko() { echo "ÉCHEC $1"; exit 1; }
 curl -s "$U/signataires.php" | grep -q Hopper && ok "migration : signature existante reste publiée" || ko "migration"
+R=$(curl -s -w '\n%{http_code}' "$U/sante.php")
+[ "$(echo "$R" | tail -1)" = 200 ] && echo "$R" | grep -q 'en attente du premier passage' && ok "santé : en service, tâche quotidienne en attente" || { echo "$R"; ko "santé initiale"; }
 ft() { curl -s "$U/" | grep -o 'name="ft" value="[^"]*"' | sed 's/.*value="//;s/"$//'; }
 # Preuve de travail (8 bits dans ce test), calculée comme le ferait assets/pow.js
 pow() { docker exec "$CID" php -r 'require "/app/src/lib.php"; for ($n = 0; !pow_ok($argv[1], (string) $n); $n++); echo $n;' "$1"; }
@@ -199,6 +201,7 @@ FT=$(ft); sleep 5
 curl -s -o /dev/null -d "ft=$FT&pow=$(pow "$FT")&prenom=Alan&nom=Turing&email=alan%2Bmanifeste@example.org" "$U/"
 grep -q 'TO: alan+manifeste@example.org' "$WORK/data/mail.log" && ok "adresse +tag acceptée, envoi à l'adresse complète" || ko "adresse +tag"
 W=$(grep -o 'withdraw.php?t=[0-9a-f]*' "$WORK/data/mail.log" | tail -1 | sed 's/.*t=//')
+curl -s "$U/withdraw.php?t=$W" | grep -q 'Télécharger mes données' && curl -s "$U/withdraw.php?t=$W&f=json" | python3 -c 'import json,sys; d = json.load(sys.stdin); assert d["email"] and d["nom"] and "attestation_horodatee" in d' && ok "retrait : export des données personnelles (JSON)" || ko "export des données"
 curl -s -o /dev/null -d "t=$W" "$U/withdraw.php"
 curl -s "$U/signataires.php" | grep -q Lovelace && ko "retrait sans effet" || ok "retrait et suppression"
 [ "$(curl -s -o /dev/null -w '%{http_code}' "$U/$PROOF")" = 404 ] && ok "retrait : preuve supprimée avec la signature" || ko "preuve après retrait"
@@ -264,4 +267,13 @@ docker exec "$CID" php /app/cron/purge.php | grep -q 'alerte envoyée' && grep -
 rm "$WORK/tsa/panne"
 SQL "UPDATE registre SET entree = replace(entree, '\"total\"', '\"total \"') WHERE numero = 1" >/dev/null
 curl -s "$U/registre.php" | grep -q 'Chaînage rompu' && docker exec "$CID" php /app/cron/purge.php >/dev/null && [ "$(grep -A10 'SUBJECT: Alerte' "$WORK/data/mail.log" | grep -c 'chaînage rompu')" -ge 1 ] && ok "registre falsifié : chaîne rompue affichée et alerte envoyée" || ko "falsification du registre"
+# Santé après une tâche quotidienne en alerte (registre falsifié ci-dessus), puis durée de conservation
+R=$(curl -s -w '\n%{http_code}' "$U/sante.php")
+[ "$(echo "$R" | tail -1)" = 503 ] && echo "$R" | grep -q '"statut": "alerte"' && ok "santé : alerte signalée (HTTP 503)" || ko "santé en alerte ($R)"
+fin() { docker exec "$CID" php -r '$c = require "/work/config.php"; $c["campagne_fin"] = $argv[1]; file_put_contents("/work/config-fin.php", "<?php return " . var_export($c, true) . ";");' "$1"; }
+fin "$(date -u -d '-2 years +30 days' +%F)"
+docker exec -e SIGN_CONFIG=/work/config-fin.php "$CID" php -r 'require "/app/src/lib.php"; echo retention_check();' | grep -q 'dans 30 jours' && grep -q 'SUBJECT: Suppression des signatures dans 30 jours' "$WORK/data/mail.log" && ok "conservation : avis 30 jours avant la suppression" || ko "avis de conservation"
+N=$(SQL 'SELECT COUNT(*) FROM signatures')
+fin "$(date -u -d '-2 years -1 day' +%F)"
+docker exec -e SIGN_CONFIG=/work/config-fin.php "$CID" php -r 'require "/app/src/lib.php"; echo retention_check();' | grep -q "$N signature(s)" && [ "$(SQL 'SELECT COUNT(*) FROM signatures')" = 0 ] && ok "conservation : toutes les signatures supprimées au terme ($N)" || ko "suppression au terme"
 echo "Tous les tests passent."
