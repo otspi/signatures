@@ -7,6 +7,7 @@
 declare(strict_types=1);
 require __DIR__ . '/../src/lib.php';
 require __DIR__ . '/../src/horodatage.php';
+require __DIR__ . '/../src/pdf.php';
 
 const DEMO_VERIFIER = 'https://demo.open-eidas.eu/#verifier';
 
@@ -14,7 +15,7 @@ $lang = lang();
 $token = (string) ($_GET['t'] ?? '');
 $signature = false;
 if (preg_match('/^[0-9a-f]{64}$/', $token) === 1) {
-    $row = db()->prepare('SELECT id, prenom, nom, fonction, organisation, publier, proof_json, proof_token FROM signatures WHERE proof_hash = ? AND confirmed_at IS NOT NULL');
+    $row = db()->prepare('SELECT id, prenom, nom, fonction, organisation, publier, lang, proof_json, proof_token, proof_pdf FROM signatures WHERE proof_hash = ? AND confirmed_at IS NOT NULL');
     $row->execute([token_hash($token)]);
     $signature = $row->fetch();
 }
@@ -26,6 +27,34 @@ if ($signature === false || $signature['proof_json'] === null) {
 
 $name = 'signature-otspi-' . (int) $signature['id'];
 $file = (string) ($_GET['f'] ?? '');
+if ($file === 'pdf' && $signature['proof_token'] !== null) {
+    // Attestation PDF : construite au premier téléchargement, conservée une fois horodatée (PAdES) ; sans
+    // horodatage (autorité injoignable), servie telle quelle et reconstruite au téléchargement suivant.
+    $pdf = $signature['proof_pdf'];
+    if ($pdf === null) {
+        try {
+            $details = tsa_verify(base64_decode($signature['proof_token']), hash('sha256', $signature['proof_json'], true));
+        } catch (TimestampInvalid $e) {
+            http_response_code(503);
+            page(t('proof_title', $lang), '<h1>' . h(t('proof_title', $lang)) . '</h1><p>' . h(t('proof_error', $lang)) . '</p>', $lang);
+            exit;
+        }
+        [$pdf, $stamped] = proof_pdf($signature, $details, $lang);
+        if ($stamped) {
+            $store = db()->prepare('UPDATE signatures SET proof_pdf = ? WHERE id = ?');
+            $store->bindValue(1, $pdf, PDO::PARAM_LOB);
+            $store->bindValue(2, (int) $signature['id'], PDO::PARAM_INT);
+            $store->execute();
+        }
+    }
+    header('Content-Type: application/pdf');
+    header('Content-Disposition: attachment; filename="' . $name . '.pdf"');
+    header('X-Content-Type-Options: nosniff');
+    header('Referrer-Policy: no-referrer');
+    header('Cache-Control: no-store');
+    echo $pdf;
+    exit;
+}
 if ($file === 'json' || ($file === 'tsr' && $signature['proof_token'] !== null)) {
     header('Content-Type: ' . ($file === 'json' ? 'application/json; charset=UTF-8' : 'application/timestamp-reply'));
     header('Content-Disposition: attachment; filename="' . $name . '.' . $file . '"');
@@ -75,6 +104,8 @@ if ($details !== null) {
         . '<li>' . h(t('proof_check_digest', $lang)) . '</li>'
         . '<li>' . h(t('proof_check_chain', $lang)) . '</li></ul>'
         . '<h2>' . h(t('proof_self', $lang)) . '</h2>'
+        . '<p><a class="button" href="' . $link(['f' => 'pdf']) . '" download>' . h(t('proof_download_pdf', $lang)) . '</a></p>'
+        . '<p class="muted">' . h(t('proof_pdf_help', $lang)) . '</p>'
         . '<div class="moderation-actions">'
         . '<a class="button secondary" href="' . $link(['f' => 'json']) . '" download>' . h(t('proof_download_json', $lang)) . '</a>'
         . '<a class="button secondary" href="' . $link(['f' => 'tsr']) . '" download>' . h(t('proof_download_tsr', $lang)) . '</a></div>'

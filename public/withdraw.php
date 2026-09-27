@@ -19,7 +19,7 @@ if ($valid && $_SERVER['REQUEST_METHOD'] === 'POST' && !cross_site_post()) {
         exit;
     }
 } elseif ($valid) {
-    $row = $pdo->prepare('SELECT email, prenom, nom, fonction, organisation, publier, lang, created_at, confirmed_at, approved_at, proof_at, proof_json FROM signatures WHERE withdraw_hash = ?');
+    $row = $pdo->prepare('SELECT email, prenom, nom, fonction, organisation, publier, lang, created_at, confirmed_at, approved_at, proof_at, proof_json, proof_token FROM signatures WHERE withdraw_hash = ?');
     $row->execute([$hash]);
     $signature = $row->fetch();
     if ($signature !== false && ($_GET['f'] ?? '') === 'json') {
@@ -37,6 +37,10 @@ if ($valid && $_SERVER['REQUEST_METHOD'] === 'POST' && !cross_site_post()) {
             'demande_le' => $iso($signature['created_at']), 'confirmee_le' => $iso($signature['confirmed_at']),
             'moderee_le' => $iso($signature['approved_at']), 'horodatee_le' => $iso($signature['proof_at']),
             'attestation_horodatee' => $signature['proof_json'] === null ? null : json_decode($signature['proof_json'], true),
+            // Jeton RFC 3161 (TimeStampResp, DER en base64) portant sur l'empreinte SHA-256 de l'attestation, exacte à
+            // l'octet près telle qu'enregistrée : attestation_texte.
+            'attestation_texte' => $signature['proof_json'],
+            'jeton_horodatage_rfc3161_base64' => $signature['proof_token'],
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         exit;
     }

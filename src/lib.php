@@ -120,7 +120,7 @@ SQL);
 function migrate_proof(PDO $pdo): void
 {
     $existing = $pdo->query('PRAGMA table_info(signatures)')->fetchAll(PDO::FETCH_COLUMN, 1);
-    foreach (['proof_hash' => 'TEXT', 'proof_json' => 'TEXT', 'proof_token' => 'TEXT', 'proof_at' => 'INTEGER', 'proof_mailed_at' => 'INTEGER'] as $column => $type) {
+    foreach (['proof_hash' => 'TEXT', 'proof_json' => 'TEXT', 'proof_token' => 'TEXT', 'proof_at' => 'INTEGER', 'proof_mailed_at' => 'INTEGER', 'proof_pdf' => 'BLOB'] as $column => $type) {
         if (!in_array($column, $existing, true)) {
             $pdo->exec("ALTER TABLE signatures ADD COLUMN $column $type");
         }
