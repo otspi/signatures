@@ -225,7 +225,8 @@ if ($session === null) {
 
 // ---- Actions (POST) ----------------------------------------------------------------------------
 
-$view = (string) ($_GET['vue'] ?? $_POST['vue'] ?? '') === 'cles' ? 'cles' : 'signatures';
+$view = (string) ($_GET['vue'] ?? $_POST['vue'] ?? '');
+$view = in_array($view, ['cles', 'stats', 'export'], true) ? $view : 'signatures';
 $filter = (string) ($_GET['f'] ?? $_POST['f'] ?? 'attente');
 $filter = isset(FILTERS[$filter]) ? $filter : 'attente';
 $here = $view === 'cles' ? ['vue' => 'cles'] : ['f' => $filter];
@@ -311,6 +312,7 @@ if ($keyError !== '') {
 
 $nav = '<nav class="admin-nav" aria-label="Administration">'
     . '<a href="admin.php"' . ($view === 'signatures' ? ' aria-current="page"' : '') . '>Signatures</a>'
+    . '<a href="' . h(url('admin.php', ['vue' => 'stats'])) . '"' . ($view === 'stats' ? ' aria-current="page"' : '') . '>Statistiques</a>'
     . '<a href="' . h(url('admin.php', ['vue' => 'cles'])) . '"' . ($view === 'cles' ? ' aria-current="page"' : '') . '>Clés de sécurité</a>'
     . '<form method="post" action="admin.php">' . hidden_inputs(['a' => 'deconnexion'])
     . '<button type="submit" class="small secondary">Se déconnecter</button></form></nav>';
@@ -318,6 +320,112 @@ $nav = '<nav class="admin-nav" aria-label="Administration">'
 $button = static fn (int $id, string $action, string $label, string $class = ''): string =>
     '<form method="post" action="admin.php">' . hidden_inputs($here + ['a' => $action, 'id' => $id])
     . '<button type="submit" class="small' . ($class !== '' ? ' ' . $class : '') . '">' . h($label) . '</button></form>';
+
+if ($view === 'export') {
+    // Export de toutes les signatures et demandes (données personnelles : administration seulement). Point-virgule
+    // et BOM pour les tableurs en français ; une cellule qui commencerait par = + - @ est neutralisée (injection
+    // de formules).
+    $cell = static function (mixed $v): string {
+        $v = (string) $v;
+        $v = preg_match('/^[=+\-@\t\r]/', $v) === 1 ? "'" . $v : $v;
+        return '"' . str_replace('"', '""', $v) . '"';
+    };
+    $date = static fn ($t): string => $t === null ? '' : date('Y-m-d H:i', (int) $t);
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="signatures-' . date('Y-m-d') . '.csv"');
+    header('Cache-Control: no-store');
+    header('X-Content-Type-Options: nosniff');
+    echo "\u{FEFF}" . implode(';', array_map($cell, ['id', 'email', 'prenom', 'nom', 'fonction', 'organisation', 'publication_demandee', 'etat', 'langue',
+        'demande_le', 'confirmee_le', 'moderee_le', 'horodatee_le', 'indication_adresse'])) . "\r\n";
+    foreach ($pdo->query('SELECT id, email, prenom, nom, fonction, organisation, publier, lang, created_at, confirmed_at, approved_at, proof_at FROM signatures ORDER BY id') as $r) {
+        echo implode(';', array_map($cell, [$r['id'], $r['email'], $r['prenom'], $r['nom'], $r['fonction'], $r['organisation'],
+            (int) $r['publier'] === 1 ? 'oui' : 'non', state($r)[0], $r['lang'], $date($r['created_at']), $date($r['confirmed_at']),
+            $date($r['approved_at']), $date($r['proof_at']), email_org_hint($r['email'], $r['organisation'])[0]])) . "\r\n";
+    }
+    exit;
+}
+
+if ($view === 'stats') {
+    $count = static fn (string $where): int => (int) $pdo->query('SELECT COUNT(*) FROM signatures WHERE ' . $where)->fetchColumn();
+    $confirmed = $count('confirmed_at IS NOT NULL');
+    $requests = $count('1 = 1');
+    $tiles = [
+        ['Signatures confirmées', (string) $confirmed],
+        ['Noms publiés', (string) $count(FILTERS['publiees'][1])],
+        ['À modérer', (string) $count(FILTERS['attente'][1])],
+        ['En attente de confirmation', (string) $count(FILTERS['non-confirmees'][1])],
+        ['Taux de confirmation', $requests === 0 ? '—' : round(100 * $confirmed / $requests) . ' %'],
+    ];
+    $tilesHtml = '';
+    foreach ($tiles as [$label, $value]) {
+        $tilesHtml .= '<div class="stat-tile"><span class="stat-value">' . h($value) . '</span><span class="stat-label">' . h($label) . '</span></div>';
+    }
+
+    // Signatures confirmées par jour, 60 derniers jours : une série, une couleur, info-bulle au survol (title).
+    $days = 60;
+    $perDay = array_fill_keys(array_map(static fn (int $i): string => date('Y-m-d', strtotime("-$i days")), range($days - 1, 0)), 0);
+    $since = $pdo->prepare('SELECT confirmed_at FROM signatures WHERE confirmed_at >= ?');
+    $since->execute([strtotime('-' . ($days - 1) . ' days midnight')]);
+    foreach ($since->fetchAll(PDO::FETCH_COLUMN) as $t) {
+        $d = date('Y-m-d', (int) $t);
+        if (isset($perDay[$d])) {
+            $perDay[$d]++;
+        }
+    }
+    $max = max(1, ...array_values($perDay));
+    $step = max(1, (int) ceil($max / 4));
+    $top = $step * (int) ceil($max / $step);
+    [$w, $h, $left, $bottom] = [720, 220, 36, 28];
+    $bw = ($w - $left) / $days;
+    $y = static fn (float $v): float => 12 + ($h - $bottom - 12) * (1 - $v / $top);
+    $svg = '<svg class="stat-chart" viewBox="0 0 ' . $w . ' ' . $h . '" role="img" aria-labelledby="chart-title">'
+        . '<title id="chart-title">Signatures confirmées par jour, ' . $days . ' derniers jours</title>';
+    for ($v = 0; $v <= $top; $v += $step) {
+        $svg .= '<line x1="' . $left . '" x2="' . $w . '" y1="' . $y($v) . '" y2="' . $y($v) . '" class="grid"/>'
+            . '<text x="' . ($left - 6) . '" y="' . ($y($v) + 4) . '" text-anchor="end" class="axis">' . $v . '</text>';
+    }
+    $i = 0;
+    $rows = '';
+    foreach ($perDay as $d => $n) {
+        $x = $left + $i * $bw;
+        if ($n > 0) {
+            $svg .= '<rect x="' . round($x + 1, 1) . '" y="' . round($y($n), 1) . '" width="' . round($bw - 2, 1) . '" height="' . round($y(0) - $y($n), 1) . '" rx="2" class="bar">'
+                . '<title>' . date('d/m', strtotime($d)) . ' : ' . $n . ' signature' . ($n > 1 ? 's' : '') . '</title></rect>';
+            $rows .= '<tr><td>' . date('d/m/Y', strtotime($d)) . '</td><td>' . $n . '</td></tr>';
+        }
+        if ($i % 10 === 0 || $i === $days - 1) {
+            // Dernière date alignée sur la fin de l'axe, pour ne pas être coupée au bord.
+            $last = $i === $days - 1;
+            $svg .= '<text x="' . ($last ? $w : round($x + $bw / 2, 1)) . '" y="' . ($h - 8) . '" text-anchor="' . ($last ? 'end' : 'middle') . '" class="axis">' . date('d/m', strtotime($d)) . '</text>';
+        }
+        $i++;
+    }
+    $svg .= '<line x1="' . $left . '" x2="' . $w . '" y1="' . $y(0) . '" y2="' . $y(0) . '" class="baseline"/></svg>';
+
+    // Répartition des signatures confirmées par type d'adresse (estimation de email_org_hint).
+    $kinds = [];
+    foreach ($pdo->query('SELECT email, organisation FROM signatures WHERE confirmed_at IS NOT NULL') as $r) {
+        $kind = email_org_hint($r['email'], $r['organisation'])[0];
+        $kinds[$kind] = ($kinds[$kind] ?? 0) + 1;
+    }
+    arsort($kinds);
+    $bars = '';
+    foreach ($kinds as $kind => $n) {
+        $bars .= '<div class="hbar"><span class="hbar-label">' . h($kind) . '</span><svg class="hbar-track" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true"><rect width="100" height="10" rx="3" class="track"/><rect width="' . round(100 * $n / max(1, $confirmed), 1) . '" height="10" rx="3" class="fill"/></svg>'
+            . '<span class="hbar-value">' . $n . ' (' . round(100 * $n / max(1, $confirmed)) . ' %)</span></div>';
+    }
+
+    admin_page('Statistiques', '<h1>Statistiques</h1>' . $nav
+        . '<div class="stat-tiles">' . $tilesHtml . '</div>'
+        . '<h2>Signatures confirmées par jour</h2><p class="muted">60 derniers jours ; survolez une barre pour son nombre.</p>' . $svg
+        . '<details class="stat-table"><summary>Voir les données</summary>' . ($rows === '' ? '<p>Aucune signature sur la période.</p>'
+            : '<table class="admin-table"><thead><tr><th scope="col">Jour</th><th scope="col">Signatures</th></tr></thead><tbody>' . $rows . '</tbody></table>') . '</details>'
+        . '<h2>Type d’adresse des signataires</h2><p class="muted">Estimation à partir du domaine de l’adresse, pas une vérification.</p>'
+        . ($bars === '' ? '<p>Aucune signature confirmée.</p>' : '<div class="hbars">' . $bars . '</div>')
+        . '<h2>Export</h2><p><a class="button secondary" href="' . h(url('admin.php', ['vue' => 'export'])) . '">Télécharger toutes les signatures (CSV)</a></p>'
+        . '<p class="muted">Données personnelles : à conserver en lieu sûr et à supprimer après usage.</p>', true);
+    exit;
+}
 
 if ($view === 'cles') {
     $keys = $pdo->query('SELECT id, name, aaguid, created_at, last_used_at FROM admin_keys ORDER BY id')->fetchAll();
