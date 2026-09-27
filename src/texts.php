@@ -117,6 +117,8 @@ return [
     'proof_check_digest' => ['fr' => 'Le jeton porte sur l’empreinte exacte de l’attestation', 'en' => 'The token covers the exact fingerprint of the attestation'],
     'proof_check_chain' => ['fr' => 'Certificat d’horodatage (usage « Time Stamping ») émis par l’autorité épinglée par ce site', 'en' => 'Timestamping certificate (“Time Stamping” usage) issued by the authority pinned by this site'],
     'proof_self' => ['fr' => 'Vérifier vous-même', 'en' => 'Verify it yourself'],
+    'proof_download_pdf' => ['fr' => 'Télécharger l’attestation PDF horodatée', 'en' => 'Download the timestamped PDF certificate'],
+    'proof_pdf_help' => ['fr' => 'Le PDF contient l’attestation et son jeton en pièces jointes, et porte lui-même un horodatage (PAdES) reconnu par Adobe Acrobat Reader.', 'en' => 'The PDF contains the attestation and its token as attachments, and is itself timestamped (PAdES), as recognised by Adobe Acrobat Reader.'],
     'proof_download_json' => ['fr' => 'Attestation (.json)', 'en' => 'Attestation (.json)'],
     'proof_download_tsr' => ['fr' => 'Jeton d’horodatage (.tsr)', 'en' => 'Timestamp token (.tsr)'],
     'proof_demo' => [
