@@ -44,7 +44,9 @@ if (preg_match('/^[0-9a-f]{64}$/', $token) === 1) {
                     . url('moderation.php', ['id' => $signature['id'], 't' => moderation_token((int) $signature['id'], (int) $signature['created_at'])]) . "\n\n"
                     . "En ligne de commande : php bin/moderation.php valider {$signature['id']}\n");
             }
-            page(t('confirmed_title', $lang), '<h1>' . h(t('confirmed_title', $lang)) . '</h1><p>' . h(t('confirmed', $lang)) . '</p>', $lang);
+            // Réponse au POST : son adresse (confirm.php?lang=…) ne porte pas le jeton, resté dans le corps de
+            // la requête. Elle peut donc être mesurée ; un rechargement renvoie le jeton usé et aboutit à la 400.
+            page(t('confirmed_title', $lang), '<h1 data-track-load="Manifeste|Signature confirmée|' . $lang . '">' . h(t('confirmed_title', $lang)) . '</h1><p>' . h(t('confirmed', $lang)) . '</p>', $lang, audience: true);
             exit;
         }
     }
