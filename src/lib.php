@@ -73,6 +73,24 @@ CREATE TABLE IF NOT EXISTS hits (
     at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS hits_ip ON hits (ip_hash, at);
+CREATE TABLE IF NOT EXISTS admin_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    credential_id TEXT NOT NULL UNIQUE,
+    public_key TEXT NOT NULL,
+    sign_count INTEGER NOT NULL DEFAULT 0,
+    aaguid TEXT NOT NULL DEFAULT '',
+    transports TEXT NOT NULL DEFAULT '[]',
+    name TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    last_used_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS admin_tokens (
+    hash TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    ref TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+);
 SQL);
         migrate($pdo);
         $pdo->exec('CREATE UNIQUE INDEX IF NOT EXISTS signatures_email_key ON signatures (email_key)');
@@ -221,25 +239,16 @@ function record_hit(): void
 const MODERATION_ACTIONS = ['valider', 'masquer', 'supprimer'];
 
 /**
- * Jeton du lien de modération envoyé à l'adresse de contact : HMAC lié à la signature (identifiant et
- * date de la demande), sans stockage ; il cesse de fonctionner quand la signature est supprimée.
- */
-function moderation_token(int $id, int $createdAt): string
-{
-    return hash_hmac('sha256', 'moderation|' . $id . '|' . $createdAt, config()['secret']);
-}
-
-/**
  * valider : publie la signature ; masquer : la garde (comptée) sans jamais publier le nom ;
- * supprimer : efface la signature et ses données (usurpation, abus). Vrai si une signature confirmée
- * a été modifiée.
+ * supprimer : efface la signature et ses données (usurpation, abus), ou une demande non confirmée.
+ * Vrai si une signature a été modifiée.
  */
 function moderate(int $id, string $action): bool
 {
     $sql = [
         'valider' => 'UPDATE signatures SET approved_at = :now WHERE id = :id AND confirmed_at IS NOT NULL',
         'masquer' => 'UPDATE signatures SET publier = 0, approved_at = :now WHERE id = :id AND confirmed_at IS NOT NULL',
-        'supprimer' => 'DELETE FROM signatures WHERE id = :id AND confirmed_at IS NOT NULL',
+        'supprimer' => 'DELETE FROM signatures WHERE id = :id',
     ][$action] ?? null;
     if ($sql === null) {
         return false;
@@ -247,22 +256,6 @@ function moderate(int $id, string $action): bool
     $statement = db()->prepare($sql);
     $statement->execute($action === 'supprimer' ? ['id' => $id] : ['id' => $id, 'now' => time()]);
     return $statement->rowCount() === 1;
-}
-
-// ---- Administration ----------------------------------------------------------------------------
-
-const ADMIN_TTL = 1800;          // 30 min : validité d'un lien d'accès à l'administration
-
-/** Jeton du lien d'accès à l'administration, envoyé à la seule adresse de contact : HMAC de l'échéance. */
-function admin_token(int $expires): string
-{
-    return hash_hmac('sha256', 'admin|' . $expires, config()['secret']);
-}
-
-function admin_access_ok(string $expires, string $token): bool
-{
-    return ctype_digit($expires) && (int) $expires >= time() && (int) $expires <= time() + ADMIN_TTL
-        && preg_match('/^[0-9a-f]{64}$/', $token) === 1 && hash_equals(admin_token((int) $expires), $token);
 }
 
 // ---- Validation ---------------------------------------------------------------------------------
@@ -331,6 +324,13 @@ function send_mail(string $to, string $subject, string $body): bool
     return mail($to, $encodedSubject, $body, implode("\r\n", $headers), '-f' . $from);
 }
 
+/** E-mail de double consentement : récapitulatif et lien de confirmation, dans la langue de la demande. */
+function send_confirmation(array $signature, string $token, string $lang): bool
+{
+    return send_mail($signature['email'], t('mail_confirm_subject', $lang), sprintf(t('mail_confirm_body', $lang),
+        recap_text($signature, $lang), url('confirm.php', ['t' => $token, 'lang' => $lang])));
+}
+
 /**
  * Données qui seront enregistrées (et publiées si la personne l'a accepté), à relire avant de confirmer :
  * paires libellé / valeur, rendues en texte dans l'e-mail et en HTML sur la page de confirmation.
@@ -387,13 +387,14 @@ function back_to_form(string $lang): string
 /**
  * $audience charge la mesure d'audience Matomo (sans cookie) : à réserver aux pages dont l'adresse ne porte
  * aucune donnée personnelle, donc jamais aux liens de confirmation, de retrait, de modération ou d'administration.
+ * $script charge un script du site (chemin relatif à public/), par exemple celui des clés de sécurité.
  */
-function page(string $title, string $body, string $lang, bool $wide = false, bool $audience = false): void
+function page(string $title, string $body, string $lang, bool $wide = false, bool $audience = false, string $script = ''): void
 {
     $stats = $audience ? ' https://stats.otspi.org' : '';
     header('Content-Type: text/html; charset=UTF-8');
     header("Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self'$stats; "
-        . ($audience ? "script-src 'self'$stats; connect-src$stats; " : '')
+        . ($audience ? "script-src 'self'$stats; connect-src$stats; " : ($script !== '' ? "script-src 'self'; " : ''))
         . "form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
     header('X-Content-Type-Options: nosniff');
     header('Referrer-Policy: no-referrer');
@@ -404,6 +405,7 @@ function page(string $title, string $body, string $lang, bool $wide = false, boo
         . '<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">'
         . '<link rel="stylesheet" href="style.css">'
         . ($audience ? '<script src="assets/analytics.js" defer></script>' : '')
+        . ($script !== '' ? '<script src="' . h($script) . '" defer></script>' : '')
         . '</head><body>'
         . '<header class="site-header"><div class="inner"><a class="brand" href="' . h(t('site_url', $lang)) . '">'
         . '<img class="logo-light" src="assets/logo-horizontal.svg" alt="' . h(t('home_alt', $lang)) . '" width="216" height="48">'

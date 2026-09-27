@@ -9,7 +9,11 @@ return [
     'secret' => 'CHANGER-MOI',
     'mail_from' => 'no-reply@manifesto-sign.otspi.org',
     'mail_from_name' => 'OTSPI',
+    // Seule adresse qui reçoit les notifications et les liens d'enregistrement de clé de l'administration.
     'contact' => 'contact@otspi.org',
+    // Facultatif : modèles de clé de sécurité acceptés pour l'administration (AAGUID en minuscules, affiché
+    // dans la page « Clés de sécurité »). Vide : toute clé externe avec code PIN.
+    'admin_aaguids' => [],
     // Pour les essais : ne pas envoyer, journaliser dans mail_log.
     'mail_dry_run' => false,
     'mail_log' => __DIR__ . '/data/mail.log',
