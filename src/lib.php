@@ -403,7 +403,7 @@ function page(string $title, string $body, string $lang, bool $wide = false, boo
         . '<meta name="robots" content="noindex"><title>' . h($title) . '</title>'
         . '<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">'
         . '<link rel="stylesheet" href="style.css">'
-        . ($audience ? '<script src="assets/analytics.js" defer></script>' : '')
+        . ($audience ? '<script src="assets/analytics.js?v=2" defer></script>' : '')
         . '</head><body>'
         . '<header class="site-header"><div class="inner"><a class="brand" href="' . h(t('site_url', $lang)) . '">'
         . '<img class="logo-light" src="assets/logo-horizontal.svg" alt="' . h(t('home_alt', $lang)) . '" width="216" height="48">'

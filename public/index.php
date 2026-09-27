@@ -72,7 +72,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             }
             if ($error === null) {
-                page(t('sent_title', $lang), '<h1>' . h(t('sent_title', $lang)) . '</h1><p>' . h(t('sent', $lang)) . '</p>', $lang, audience: true);
+                page(t('sent_title', $lang), '<h1 data-track-load="Manifeste|Demande envoyée|' . $lang . '">' . h(t('sent_title', $lang)) . '</h1><p>' . h(t('sent', $lang)) . '</p>', $lang, audience: true);
                 exit;
             }
         }
@@ -86,7 +86,7 @@ $field = static fn (string $name, string $label, string $type, bool $required, i
 
 $body = '<p class="lang"><a href="?lang=' . $other . '">' . strtoupper($other) . '</a></p>'
     . '<h1>' . h(t('heading', $lang)) . '</h1>'
-    . ($error ? '<p class="error" role="alert">' . h(t($error, $lang)) . '</p>' : '')
+    . ($error ? '<p class="error" role="alert" data-track-load="Manifeste|Erreur|' . h($error) . '">' . h(t($error, $lang)) . '</p>' : '')
     . '<form method="post" action="?lang=' . $lang . '">'
     . '<input type="hidden" name="lang" value="' . $lang . '"><input type="hidden" name="ft" value="' . h(form_token()) . '">'
     . '<p class="hp" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></p>'
@@ -96,6 +96,6 @@ $body = '<p class="lang"><a href="?lang=' . $other . '">' . strtoupper($other) .
     . $field('fonction', t('position', $lang), 'text', false, 120)
     . $field('organisation', t('organisation', $lang), 'text', false, 120)
     . '<p><label><input type="checkbox" name="publier" value="1"' . ($old['publier'] ? ' checked' : '') . '> ' . h(t('publish', $lang)) . '</label></p>'
-    . '<p><button type="submit">' . h(t('submit', $lang)) . '</button></p></form>'
+    . '<p><button type="submit" data-track="Manifeste|Envoyer le formulaire|' . $lang . '">' . h(t('submit', $lang)) . '</button></p></form>'
     . '<p class="privacy">' . h(t('privacy', $lang)) . '</p>';
 page(t('title', $lang), $body, $lang, audience: true);
