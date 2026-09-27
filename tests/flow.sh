@@ -31,7 +31,10 @@ curl -s "$U/confirm.php?t=$TOKEN" | grep -q 'method="post"' && ok "le lien affic
 curl -s "$U/confirm.php?t=$TOKEN" | grep -q '<dd>Lovelace</dd>' && ok "récapitulatif sur la page de confirmation" || ko "récapitulatif de la page"
 [ "$(curl -s -o /dev/null -w '%{http_code}' -H 'Sec-Fetch-Site: cross-site' -d "t=$TOKEN" "$U/confirm.php")" = 200 ] && ok "confirmation depuis un autre site refusée" || ko "confirmation intersite"
 [ "$(curl -s "$U/confirm.php?t=$TOKEN" | grep -c 'method="post"')" = 1 ] && ok "le lien seul (GET) ne confirme rien" || ko "confirmé par GET"
-[ "$(curl -s -o /dev/null -w '%{http_code}' -d "t=$TOKEN" "$U/confirm.php")" = 200 ] && ok "confirmation (POST)" || ko "confirmation"
+curl -s "$U/confirm.php?t=$TOKEN" | grep -q 'analytics.js' && ko "mesure d'audience sur une page à jeton" || ok "page à jeton non mesurée"
+R=$(curl -s -w '\n%{http_code}' -d "t=$TOKEN" "$U/confirm.php?lang=fr")
+[ "$(echo "$R" | tail -1)" = 200 ] && ok "confirmation (POST)" || ko "confirmation"
+echo "$R" | grep -q 'data-track-load="Manifeste|Signature confirmée|fr"' && echo "$R" | grep -q 'analytics.js' && ok "signature confirmée mesurée, sans jeton dans l'adresse" || ko "mesure de la confirmation"
 [ "$(curl -s -o /dev/null -w '%{http_code}' -d "t=$TOKEN" "$U/confirm.php")" = 400 ] && ok "lien de confirmation à usage unique" || ko "réutilisation du lien"
 grep -q 'SUBJECT: Signature à modérer : Ada Lovelace' "$WORK/data/mail.log" && ok "notification de modération" || ko "notification de modération"
 curl -s "$U/signataires.php" | grep -q Lovelace && ko "publiée avant modération" || ok "non publiée avant modération"
