@@ -326,6 +326,75 @@ function moderate(int $id, string $action): bool
     return $statement->rowCount() === 1;
 }
 
+// ---- Adresse et organisation -----------------------------------------------------------------
+
+const FREE_MAIL = ['gmail', 'googlemail', 'outlook', 'hotmail', 'live', 'msn', 'yahoo', 'ymail', 'icloud', 'me', 'mac', 'aol',
+    'orange', 'wanadoo', 'free', 'sfr', 'neuf', 'laposte', 'bbox', 'numericable', 'club-internet', 'aliceadsl', 'protonmail', 'proton',
+    'pm', 'tutanota', 'tuta', 'gmx', 'web', 'zoho', 'yandex', 'mail', 'posteo', 'mailo', 'ik', 'riseup', 'disroot', 'skynet', 'bluewin', 'libero'];
+const GENERIC_LABELS = ['www', 'mail', 'mx', 'smtp', 'univ', 'uni', 'u', 'etu', 'etud', 'etudiant', 'student', 'students', 'staff',
+    'gouv', 'gov', 'ac', 'co', 'com', 'org', 'net', 'edu', 'asso', 'fr', 'eu', 'be', 'ch', 'de'];
+
+function ascii_fold(string $value): string
+{
+    return strtolower(strtr($value, ['à' => 'a', 'â' => 'a', 'ä' => 'a', 'á' => 'a', 'ã' => 'a', 'å' => 'a', 'ç' => 'c', 'é' => 'e', 'è' => 'e',
+        'ê' => 'e', 'ë' => 'e', 'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i', 'ñ' => 'n', 'ó' => 'o', 'ò' => 'o', 'ô' => 'o', 'ö' => 'o',
+        'õ' => 'o', 'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u', 'ÿ' => 'y', 'œ' => 'oe', 'æ' => 'ae', 'À' => 'a', 'Â' => 'a', 'Ç' => 'c',
+        'É' => 'e', 'È' => 'e', 'Ê' => 'e', 'Î' => 'i', 'Ï' => 'i', 'Ô' => 'o', 'Ö' => 'o', 'Û' => 'u', 'Ü' => 'u', 'Œ' => 'oe']));
+}
+
+/**
+ * Estimation, pour la modération (jamais publiée), du rapport entre l'adresse e-mail et l'organisation déclarée :
+ * [libellé, classe du badge]. « Correspond » quand un libellé significatif du domaine (inria dans inria.fr,
+ * lyon1 dans univ-lyon1.fr) se retrouve dans le nom ou le sigle de l'organisation. Ce n'est pas une vérification :
+ * n'importe qui peut déclarer n'importe quelle organisation, et un domaine peut avoir un autre nom que l'organisation.
+ */
+function email_org_hint(string $email, string $organisation): array
+{
+    $domain = strtolower(substr($email, strrpos($email, '@') + 1));
+    $labels = explode('.', $domain);
+    // Messagerie grand public : fournisseur suivi d'un suffixe court (gmail.com, yahoo.co.uk), pas mail.inria.fr.
+    if (in_array($labels[0], FREE_MAIL, true) && count(array_filter(array_slice($labels, 1), static fn (string $l): bool => strlen($l) > 3)) === 0) {
+        return ['Messagerie grand public', 'muted'];
+    }
+    if (trim($organisation) === '') {
+        return ['Domaine professionnel, sans organisation déclarée', 'muted'];
+    }
+    $words = preg_split('/[^a-z0-9]+/', ascii_fold($organisation), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+    $compact = implode('', $words);
+    $acronym = implode('', array_map(static fn (string $w): string => $w[0],
+        array_filter($words, static fn (string $w): bool => !in_array($w, ['de', 'du', 'des', 'la', 'le', 'les', 'l', 'd', 'et', 'en', 'of', 'the', 'and'], true))));
+    foreach (preg_split('/[.-]/', implode('.', array_slice($labels, 0, -1))) ?: [] as $label) {
+        if (strlen($label) >= 3 && !in_array($label, GENERIC_LABELS, true)
+            && (str_contains($compact, $label) || str_starts_with($acronym, $label) || (strlen($compact) >= 4 && str_contains($label, $compact)))) {
+            return ['Adresse de l’organisation déclarée', 'ok'];
+        }
+    }
+    return ['Domaine différent de l’organisation déclarée', 'pending'];
+}
+
+/**
+ * Récapitulatif des signatures à modérer, envoyé à l'adresse de contact (tâche quotidienne, ou
+ * php bin/moderation.php recapitulatif). Renvoie le nombre de signatures en attente (0 : rien n'est envoyé).
+ */
+function moderation_digest(): int
+{
+    $rows = db()->query('SELECT id, email, prenom, nom, fonction, organisation, confirmed_at FROM signatures WHERE confirmed_at IS NOT NULL AND publier = 1 AND approved_at IS NULL ORDER BY confirmed_at')->fetchAll();
+    if ($rows === []) {
+        return 0;
+    }
+    $lines = [];
+    foreach ($rows as $r) {
+        $quality = implode(', ', array_filter([$r['fonction'], $r['organisation']], 'strlen'));
+        $lines[] = "#{$r['id']} " . trim($r['prenom'] . ' ' . $r['nom']) . ($quality !== '' ? " — $quality" : '') . "\n"
+            . "{$r['email']} : " . email_org_hint($r['email'], $r['organisation'])[0] . ', confirmée le ' . date('d/m/Y', (int) $r['confirmed_at']);
+    }
+    send_mail(config()['contact'], count($rows) . ' signature' . (count($rows) > 1 ? 's' : '') . ' à modérer',
+        "Signatures confirmées, en attente de validation avant publication :\n\n" . implode("\n\n", $lines) . "\n\n"
+        . "Valider (une à une ou par lot), masquer ou supprimer, avec la clé de sécurité :\n\n"
+        . url('admin.php', ['f' => 'attente']) . "\n\nOTSPI — contact@otspi.org");
+    return count($rows);
+}
+
 // ---- Validation ---------------------------------------------------------------------------------
 
 function clean(string $value, int $max): ?string

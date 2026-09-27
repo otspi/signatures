@@ -24,6 +24,8 @@ return [
     // src/sauvegarde-certificat.pem ; la clé privée correspondante reste hors du serveur).
     // 'backup_to' => 'contact@otspi.org',
     // 'backup_certificate' => __DIR__ . '/src/sauvegarde-certificat.pem',
+    // Signatures à modérer : 'quotidien' (défaut, un récapitulatif par nuit) ou 'immediat' (un e-mail par signature).
+    // 'moderation_notify' => 'quotidien',
     // Pour les essais : ne pas envoyer, journaliser dans mail_log.
     'mail_dry_run' => false,
     'mail_log' => __DIR__ . '/data/mail.log',

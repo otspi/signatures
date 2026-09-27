@@ -87,6 +87,7 @@ touch "$WORK/tsa/panne"
 R=$(curl -s -w '\n%{http_code}' -d "t=$TOKEN" "$U/confirm.php?lang=fr")
 [ "$(echo "$R" | tail -1)" = 200 ] && ok "confirmation (POST)" || ko "confirmation"
 echo "$R" | grep -q 'data-track-load="Manifeste|Signature confirmée|fr"' && echo "$R" | grep -q 'analytics.js' && ok "signature confirmée mesurée, sans jeton dans l'adresse" || ko "mesure de la confirmation"
+echo "$R" | grep -q 'linkedin.com/sharing' && echo "$R" | grep -q 'assets/partage.js' && echo "$R" | grep -q 'compteur.php' && ok "page de confirmation : partage et compteur à intégrer" || ko "bloc de partage"
 PROOF=$(grep -o 'preuve.php?t=[0-9a-f]*&lang=fr' "$WORK/data/mail.log" | tail -1)
 [ -n "$PROOF" ] && curl -s "$U/$PROOF" | grep -q 'Horodatage en cours' && ok "autorité injoignable : confirmation non bloquée, preuve en attente" || ko "preuve en attente"
 curl -s "$U/$PROOF" | grep -q 'analytics.js' && ko "mesure d'audience sur la page de preuve" || ok "page de preuve non mesurée"
@@ -103,11 +104,13 @@ docker exec "$CID" openssl ts -verify -data /work/p2.json -in /work/p.tsr -CAfil
 docker exec -e SIGN_CONFIG=/work/config-staging.php "$CID" php -r 'require "/app/src/lib.php"; require "/app/src/horodatage.php"; try { tsa_verify(file_get_contents("/work/p.tsr"), hash("sha256", file_get_contents("/work/p.json"), true)); echo "accepté"; } catch (TimestampInvalid $e) { echo $e->getMessage(); }' | grep -q "autorité épinglée" && ok "jeton d'une autre autorité refusé par la chaîne épinglée du staging" || ko "chaîne épinglée"
 [ "$(curl -s -o /dev/null -w '%{http_code}' "$U/preuve.php?t=$(printf '0%.0s' $(seq 64))")" = 404 ] && ok "lien de preuve falsifié refusé" || ko "preuve falsifiée"
 [ "$(curl -s -o /dev/null -w '%{http_code}' -d "t=$TOKEN" "$U/confirm.php")" = 400 ] && ok "lien de confirmation à usage unique" || ko "réutilisation du lien"
-grep -q 'SUBJECT: Signature à modérer : Ada Lovelace' "$WORK/data/mail.log" && ok "notification de modération" || ko "notification de modération"
+grep -q 'SUBJECT: Signature à modérer' "$WORK/data/mail.log" && ko "notification immédiate (récapitulatif quotidien attendu)" || ok "pas d'e-mail de modération par signature"
+docker exec "$CID" php /app/bin/moderation.php recapitulatif | grep -q '^1 signature' && grep -F -A12 'SUBJECT: 1 signature à modérer' "$WORK/data/mail.log" | grep -q 'Ada Lovelace' && ok "récapitulatif de modération" || ko "récapitulatif de modération"
+grep -F -A12 'SUBJECT: 1 signature à modérer' "$WORK/data/mail.log" | grep -q 'Domaine différent de l’organisation déclarée' && ok "récapitulatif : indication adresse / organisation" || ko "indication dans le récapitulatif"
 curl -s "$U/signataires.php" | grep -q Lovelace && ko "publiée avant modération" || ok "non publiée avant modération"
 curl -s "$U/signataires.php" | grep -q '"total": 3' && ko "comptée avant modération" || ok "non comptée avant modération"
 docker exec "$CID" php /app/bin/moderation.php lister | grep -q 'Ada Lovelace' && ok "modération en ligne de commande : liste" || ko "liste de modération"
-grep -F -A8 'SUBJECT: Signature à modérer' "$WORK/data/mail.log" | grep -q "$U/admin.php?f=attente" && ok "notification : lien vers l'administration" || ko "lien de la notification"
+grep -F -A14 'SUBJECT: 1 signature à modérer' "$WORK/data/mail.log" | grep -q "$U/admin.php?f=attente" && ok "notification : lien vers l'administration" || ko "lien de la notification"
 [ "$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "$U/moderation.php?id=1&t=abc")" = "303 $U/admin.php?f=attente" ] && ok "ancien lien de modération redirigé vers l'administration" || ko "redirection moderation.php"
 # Administration : connexion uniquement par clé de sécurité (clé virtuelle tests/authenticator.php)
 AUTH() { docker exec -i "$CID" php /app/tests/authenticator.php "$@"; }
@@ -149,10 +152,15 @@ A "$U/admin.php?f=attente" | grep -q '<strong>Ada Lovelace</strong>' && ok "admi
 curl -s -b "$J2" -H 'Sec-Fetch-Site: cross-site' -d "a=valider&id=$MID" "$U/admin.php" | grep -q 'Action refusée' && ok "modération intersite : refus affiché" || ko "refus intersite non affiché"
 curl -s -H 'Sec-Fetch-Site: same-origin' -d "a=valider&id=$MID" "$U/admin.php" | grep -q 'Session expirée' && ok "action sans session refusée" || ko "action sans session"
 curl -s "$U/signataires.php" | grep -q Lovelace && ko "modération sans session ou depuis un autre site" || ok "rien de publié sans session valide"
-R=$(A -o /dev/null -w '%{http_code} %{redirect_url}' -d "a=valider&id=$MID&f=attente" "$U/admin.php")
-echo "$R" | grep -q '^303 .*fait=valider' && ok "validation depuis l'administration" || ko "validation ($R)"
+P=$(A "$U/admin.php?f=attente")
+echo "$P" | grep -q 'form="lot"' && echo "$P" | grep -q 'Valider la sélection' && echo "$P" | grep -q 'Domaine différent de l’organisation déclarée' && ok "administration : sélection par lot et indication adresse / organisation" || ko "page à modérer"
+A -o /dev/null -w '%{redirect_url}' -d "a=valider-lot&f=attente" "$U/admin.php" | grep -q 'fait=lot-vide' && ok "lot vide refusé" || ko "lot vide"
+R=$(A -o /dev/null -w '%{http_code} %{redirect_url}' -d "a=valider-lot&ids[]=$MID&f=attente" "$U/admin.php")
+echo "$R" | grep -q '^303 .*fait=valider-lot.*id=1' && ok "validation par lot depuis l'administration" || ko "validation par lot ($R)"
 curl -s "$U/signataires.php" | grep -q Lovelace && ok "publiée après validation" || ko "absente de la liste"
 curl -s "$U/signataires.php" | grep -q 'ada@example.org' && ko "e-mail publié !" || ok "adresse e-mail jamais publiée"
+curl -s -D "$WORK/h.txt" -o "$WORK/c.svg" "$U/compteur.php"
+grep -qi '^content-type: image/svg+xml' "$WORK/h.txt" && python3 -c 'import sys, xml.dom.minidom as m; d = m.parse(sys.argv[1]); t = d.getElementsByTagName("title")[0].firstChild.data; assert "signataires" in t, t' "$WORK/c.svg" && grep -q "$(curl -s "$U/signataires.php" | python3 -c 'import json,sys; print(json.load(sys.stdin)["total"])') signataires" "$WORK/c.svg" && ok "compteur SVG valide, au total de la liste publique" || ko "compteur SVG"
 curl -s -D - -o /dev/null "$U/signataires.php" | grep -qi '^access-control-allow-origin: https://www.otspi.org' && ok "liste lisible depuis www.otspi.org (CORS)" || ko "CORS"
 A "$U/admin.php?f=publiees" | grep -q 'Lovelace' && ok "administration : liste des publiées" || ko "liste admin"
 HID=$(docker exec "$CID" php -r 'require "/app/src/lib.php"; echo db()->query("SELECT id FROM signatures WHERE email = \"old+bis@example.org\"")->fetchColumn();')
