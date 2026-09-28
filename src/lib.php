@@ -9,6 +9,10 @@ const CONFIRM_TTL = 172800;      // 48 h : validité du lien de confirmation
 const UNCONFIRMED_TTL = 604800;  // 7 jours : durée de conservation d'une demande non confirmée
 const MIN_FILL_SECONDS = 4;      // un humain met plus de 4 s à remplir le formulaire
 const MAX_FILL_SECONDS = 7200;   // formulaire périmé au-delà de 2 h
+// Heure de Paris pour toutes les dates affichées, écrites dans les e-mails ou servant de « jour » (registre) :
+// le PHP de l'hébergeur est réglé sur UTC. Surcharge : timezone dans config.php.
+date_default_timezone_set('Europe/Paris');
+
 const MAIL_HOURLY_CAP = 200;     // plafond global d'e-mails de confirmation par heure (surcharge : mail_hourly_cap)
 const POW_BITS = 18;             // preuve de travail : bits nuls en tête de l'empreinte (surcharge : pow_bits)
 
@@ -33,6 +37,9 @@ function config(): array
             exit('Configuration manquante.');
         }
         $config = require $file;
+        if (is_string($config['timezone'] ?? null)) {
+            date_default_timezone_set($config['timezone']);
+        }
     }
     return $config;
 }

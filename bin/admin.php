@@ -7,7 +7,7 @@
 //   php bin/admin.php deconnecter    ferme toutes les sessions d'administration
 
 declare(strict_types=1);
-if (PHP_SAPI !== 'cli') {
+if (PHP_SAPI !== 'cli' && isset($_SERVER['REQUEST_METHOD'])) {   // jamais depuis le Web ; php-cgi en ligne de commande accepté
     exit(1);
 }
 require __DIR__ . '/../src/lib.php';

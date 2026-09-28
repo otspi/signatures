@@ -8,7 +8,9 @@
 // problème, une alerte part à l'adresse de contact (au plus une par passage).
 
 declare(strict_types=1);
-if (PHP_SAPI !== 'cli') {
+// Jamais depuis le Web. En ligne de commande, php-cgi est accepté : chez o2switch, la commande « php » du cron
+// est php-cgi (utiliser /usr/local/bin/php, la version en ligne de commande, de préférence).
+if (PHP_SAPI !== 'cli' && isset($_SERVER['REQUEST_METHOD'])) {
     exit(1);
 }
 require __DIR__ . '/../src/lib.php';
