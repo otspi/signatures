@@ -29,6 +29,8 @@ return [
     // Fin de la campagne (AAAA-MM-JJ) : toutes les signatures sont supprimées deux ans après, comme l'annonce le
     // texte d'information ; avis à l'adresse de contact 30 et 7 jours avant. Vide : campagne en cours.
     // 'campagne_fin' => '2027-12-31',
+    // Fuseau horaire des dates affichées et du « jour » du registre (défaut : Europe/Paris).
+    // 'timezone' => 'Europe/Paris',
     // Pour les essais : ne pas envoyer, journaliser dans mail_log.
     'mail_dry_run' => false,
     'mail_log' => __DIR__ . '/data/mail.log',

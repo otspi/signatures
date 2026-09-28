@@ -31,12 +31,23 @@ try {
     exit(json_encode(['statut' => 'alerte', 'controles' => ['base' => ['ok' => false]]]));
 }
 
+// Première lecture de cette page : au-delà de 26 h sans aucun passage, la tâche quotidienne ne tourne pas.
+if (etat_get('premiere_lecture') === null) {
+    etat_set('premiere_lecture', 'sante');
+}
+$watchedSince = (int) etat_get('premiere_lecture')['at'];
 $task = etat_get('tache');
 $checks['tache_quotidienne'] = $recent($task);
+if ($task === null && time() - $watchedSince > MAX_AGE) {
+    $checks['tache_quotidienne'] = ['ok' => false, 'etat' => 'jamais exécutée depuis la mise en service de la surveillance', 'derniere' => null];
+}
 if ($task !== null && $task['valeur'] !== 'ok') {
     $checks['tache_quotidienne']['ok'] = false;
 }
 $checks['sauvegarde'] = $recent(etat_get('sauvegarde'));
+if (etat_get('sauvegarde') === null && time() - $watchedSince > MAX_AGE) {
+    $checks['sauvegarde']['ok'] = false;
+}
 
 $last = db()->query('SELECT jour, jeton IS NOT NULL AS horodatee FROM registre ORDER BY numero DESC LIMIT 1')->fetch();
 $checks['registre'] = $last === false

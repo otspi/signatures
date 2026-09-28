@@ -53,6 +53,10 @@ ok() { echo "OK  $1"; }; ko() { echo "ÉCHEC $1"; exit 1; }
 curl -s "$U/signataires.php" | grep -q Hopper && ok "migration : signature existante reste publiée" || ko "migration"
 R=$(curl -s -w '\n%{http_code}' "$U/sante.php")
 [ "$(echo "$R" | tail -1)" = 200 ] && echo "$R" | grep -q 'en attente du premier passage' && ok "santé : en service, tâche quotidienne en attente" || { echo "$R"; ko "santé initiale"; }
+docker exec "$CID" php -r 'require "/app/src/lib.php"; db()->exec("UPDATE etat SET at = at - 100000 WHERE cle = \"premiere_lecture\"");'
+curl -s "$U/sante.php" | grep -q 'jamais exécutée' && ok "santé : tâche quotidienne jamais exécutée après 26 h signalée" || ko "tâche jamais exécutée"
+docker exec "$CID" php -r 'require "/app/src/lib.php"; db()->exec("UPDATE etat SET at = " . time() . " WHERE cle = \"premiere_lecture\"");'
+docker exec "$CID" php -r 'require "/app/src/lib.php"; config(); echo date_default_timezone_get();' | grep -qx 'Europe/Paris' && ok "dates à l'heure de Paris" || ko "fuseau horaire"
 ft() { curl -s "$U/" | grep -o 'name="ft" value="[^"]*"' | sed 's/.*value="//;s/"$//'; }
 # Preuve de travail (8 bits dans ce test), calculée comme le ferait assets/pow.js
 pow() { docker exec "$CID" php -r 'require "/app/src/lib.php"; for ($n = 0; !pow_ok($argv[1], (string) $n); $n++); echo $n;' "$1"; }

@@ -42,7 +42,7 @@ Mesure d'audience : seuls le formulaire (`index.php`) et la page « signature co
 
 1. Copier le dépôt hors du dossier web, le dossier `public/` étant la racine du site. Les dossiers `src/`, `data/`, `bin/` et `cron/` ne doivent pas être servis.
 2. Copier `config.example.php` en `config.php` et le renseigner (secret aléatoire, adresse, expéditeur). `config.php` et `data/` ne sont jamais versionnés.
-3. Planifier `php cron/purge.php` une fois par jour.
+3. Planifier `cron/purge.php` une fois par jour avec la version **en ligne de commande** de PHP, en chemin absolu : chez o2switch, `23 3 * * * /usr/local/bin/php ~/otspi-signatures/cron/purge.php >> ~/otspi-signatures/data/purge.log 2>&1` (dans l'environnement du cron, la commande `php` est php-cgi ; les scripts l'acceptent, mais leur journal se remplit alors d'en-têtes HTTP). Les dates sont à l'heure de Paris (`timezone` dans `config.php` pour changer), le PHP de l'hébergeur étant réglé sur UTC.
 4. Prérequis : PHP 8.1 ou plus avec PDO SQLite et OpenSSL, `allow_url_fopen` activé (appel à l'autorité d'horodatage) ; la fonction `mail()` opérationnelle, avec SPF et DKIM sur le domaine d'expéditeur.
 
 ## Déploiement
